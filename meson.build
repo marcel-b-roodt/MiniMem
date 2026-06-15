@@ -57,6 +57,29 @@ if criterion_dep.found()
     )
     test('minimem_unit_tests', test_exe)
 
+    kernel_test_exe = executable('minimem_kernel_test',
+        sources : [
+            'tests/kernel/test_minimem_kernel.c',
+            'src/lib/test_data.c',
+            'src/lib/registry.c',
+            'src/lib/compressors/same_page.c',
+            'src/lib/compressors/bdi.c',
+            'src/lib/compressors/wkdm.c',
+            'src/lib/compressors/lz4_wrap.c',
+            'src/lib/compressors/lzsse8.c',
+            'src/lib/compressors/zstd_dict.c',
+            'src/lib/compressors/delta.c',
+            'src/lib/compressors/wkdm64.c',
+            'src/lib/compressors/block_class.c',
+            'src/lib/advisor.c',
+            'src/lib/vendor/lz4/lz4.c',
+            'src/lib/vendor/lz4/lz4hc.c',
+        ],
+        include_directories : [include_directories('src'), include_directories('tests')],
+        dependencies : [zstd_dep],
+        install : false,
+    )
+
     bench_exe = executable('minimem_bench',
         sources : [
             'reports/bench_runner.c',

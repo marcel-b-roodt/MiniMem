@@ -1,9 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * minimem.c — MiniMem transparent in-memory page compression module
+ * minimem_main.c — MiniMem transparent in-memory page compression module
  *
  * Provides transparent compression of cold memory pages using multiple
  * algorithms (same-page detection, BDI, WKdm, LZ4) with sysfs stats.
+ * Uses per-CPU buffers for compression and xarray-based compression map.
  */
 
 #include <linux/module.h>
@@ -14,25 +15,41 @@
 #include <linux/sysfs.h>
 #include <linux/kobject.h>
 
+#include "minimem_compress.h"
+#include "minimem_map.h"
+
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("MiniMem Project");
 MODULE_DESCRIPTION("Transparent in-memory page compression");
-MODULE_VERSION("0.1.0");
+MODULE_VERSION("0.2.0");
 
 static struct minimem_stats {
 	atomic64_t pages_compressed;
+	atomic64_t pages_decompressed;
 	atomic64_t bytes_saved;
+	atomic64_t compress_count;
 	atomic64_t decompress_count;
+	atomic64_t compress_ns_total;
 	atomic64_t decompress_ns_total;
 } minimem_stats;
 
+static struct minimem_map minimem_map;
 static struct kobject *minimem_kobj;
+
+/* ---- Sysfs attributes ---- */
 
 static ssize_t pages_compressed_show(struct kobject *kobj,
 				     struct kobj_attribute *attr, char *buf)
 {
 	return sprintf(buf, "%lld\n",
 		       atomic64_read(&minimem_stats.pages_compressed));
+}
+
+static ssize_t pages_decompressed_show(struct kobject *kobj,
+				       struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lld\n",
+		       atomic64_read(&minimem_stats.pages_decompressed));
 }
 
 static ssize_t bytes_saved_show(struct kobject *kobj,
@@ -42,6 +59,13 @@ static ssize_t bytes_saved_show(struct kobject *kobj,
 		       atomic64_read(&minimem_stats.bytes_saved));
 }
 
+static ssize_t compress_count_show(struct kobject *kobj,
+				   struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lld\n",
+		       atomic64_read(&minimem_stats.compress_count));
+}
+
 static ssize_t decompress_count_show(struct kobject *kobj,
 				      struct kobj_attribute *attr, char *buf)
 {
@@ -49,8 +73,15 @@ static ssize_t decompress_count_show(struct kobject *kobj,
 		       atomic64_read(&minimem_stats.decompress_count));
 }
 
+static ssize_t compress_ns_total_show(struct kobject *kobj,
+				       struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lld\n",
+		       atomic64_read(&minimem_stats.compress_ns_total));
+}
+
 static ssize_t decompress_ns_total_show(struct kobject *kobj,
-					 struct kobj_attribute *attr, char *buf)
+					struct kobj_attribute *attr, char *buf)
 {
 	return sprintf(buf, "%lld\n",
 		       atomic64_read(&minimem_stats.decompress_ns_total));
@@ -68,23 +99,56 @@ static ssize_t decompress_avg_ns_show(struct kobject *kobj,
 	return sprintf(buf, "%lld\n", total / count);
 }
 
+static ssize_t compress_avg_ns_show(struct kobject *kobj,
+				     struct kobj_attribute *attr, char *buf)
+{
+	s64 count = atomic64_read(&minimem_stats.compress_count);
+	s64 total = atomic64_read(&minimem_stats.compress_ns_total);
+
+	if (count == 0)
+		return sprintf(buf, "0\n");
+
+	return sprintf(buf, "%lld\n", total / count);
+}
+
+static ssize_t map_entries_show(struct kobject *kobj,
+				struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%ld\n", minimem_map_count(&minimem_map));
+}
+
 static struct kobj_attribute pages_compressed_attr =
 	__ATTR(pages_compressed, 0444, pages_compressed_show, NULL);
+static struct kobj_attribute pages_decompressed_attr =
+	__ATTR(pages_decompressed, 0444, pages_decompressed_show, NULL);
 static struct kobj_attribute bytes_saved_attr =
 	__ATTR(bytes_saved, 0444, bytes_saved_show, NULL);
+static struct kobj_attribute compress_count_attr =
+	__ATTR(compress_count, 0444, compress_count_show, NULL);
 static struct kobj_attribute decompress_count_attr =
 	__ATTR(decompress_count, 0444, decompress_count_show, NULL);
+static struct kobj_attribute compress_ns_total_attr =
+	__ATTR(compress_ns_total, 0444, compress_ns_total_show, NULL);
 static struct kobj_attribute decompress_ns_total_attr =
 	__ATTR(decompress_ns_total, 0444, decompress_ns_total_show, NULL);
 static struct kobj_attribute decompress_avg_ns_attr =
 	__ATTR(decompress_avg_ns, 0444, decompress_avg_ns_show, NULL);
+static struct kobj_attribute compress_avg_ns_attr =
+	__ATTR(compress_avg_ns, 0444, compress_avg_ns_show, NULL);
+static struct kobj_attribute map_entries_attr =
+	__ATTR(map_entries, 0444, map_entries_show, NULL);
 
 static struct attribute *minimem_attrs[] = {
 	&pages_compressed_attr.attr,
+	&pages_decompressed_attr.attr,
 	&bytes_saved_attr.attr,
+	&compress_count_attr.attr,
 	&decompress_count_attr.attr,
+	&compress_ns_total_attr.attr,
 	&decompress_ns_total_attr.attr,
 	&decompress_avg_ns_attr.attr,
+	&compress_avg_ns_attr.attr,
+	&map_entries_attr.attr,
 	NULL,
 };
 
@@ -92,22 +156,45 @@ static struct attribute_group minimem_attr_group = {
 	.attrs = minimem_attrs,
 };
 
+/* ---- Module init/exit ---- */
+
 static int __init minimem_init(void)
 {
 	int ret;
 
 	atomic64_set(&minimem_stats.pages_compressed, 0);
+	atomic64_set(&minimem_stats.pages_decompressed, 0);
 	atomic64_set(&minimem_stats.bytes_saved, 0);
+	atomic64_set(&minimem_stats.compress_count, 0);
 	atomic64_set(&minimem_stats.decompress_count, 0);
+	atomic64_set(&minimem_stats.compress_ns_total, 0);
 	atomic64_set(&minimem_stats.decompress_ns_total, 0);
 
+	ret = minimem_compress_init();
+	if (ret) {
+		pr_err("minimem: failed to allocate per-CPU buffers\n");
+		return ret;
+	}
+
+	ret = minimem_map_init(&minimem_map);
+	if (ret) {
+		pr_err("minimem: failed to initialize compression map\n");
+		minimem_compress_exit();
+		return ret;
+	}
+
 	minimem_kobj = kobject_create_and_add("minimem", kernel_kobj);
-	if (!minimem_kobj)
+	if (!minimem_kobj) {
+		minimem_map_destroy(&minimem_map);
+		minimem_compress_exit();
 		return -ENOMEM;
+	}
 
 	ret = sysfs_create_group(minimem_kobj, &minimem_attr_group);
 	if (ret) {
 		kobject_put(minimem_kobj);
+		minimem_map_destroy(&minimem_map);
+		minimem_compress_exit();
 		return ret;
 	}
 
@@ -119,6 +206,10 @@ static void __exit minimem_exit(void)
 {
 	sysfs_remove_group(minimem_kobj, &minimem_attr_group);
 	kobject_put(minimem_kobj);
+
+	minimem_map_remove_all(&minimem_map);
+	minimem_map_destroy(&minimem_map);
+	minimem_compress_exit();
 
 	pr_info("minimem: module unloaded - %lld pages compressed, %lld bytes saved\n",
 		atomic64_read(&minimem_stats.pages_compressed),
