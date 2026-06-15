@@ -30,16 +30,18 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 
 | Feature | Status | Notes |
 |---|---|---|
-| Kernel module scaffold | 📋 Planned | Loadable module, sysfs stats, clean rmmod |
+| Kernel module scaffold | ✅ Complete | Loadable module, sysfs stats (9 attributes), clean rmmod, per-CPU buffers |
 | Page idle tracking | 📋 Planned | PG_idle/PG_young or soft-dirty bit hook |
-| Compression map | 📋 Planned | VA → compressed handle (zsmalloc-backed) |
+| Compression map | ✅ Complete | xarray-based VA → entry map; kmem_cache-backed entries; RCU-safe lookups |
+| Compression dispatch | ✅ Complete | Per-CPU buffer compression dispatch; same-page detection; kernel advisor |
 | PTE marking for compressed pages | 📋 Planned | Custom swp_entry; analogous to swap entries |
 | Page fault handler (decompress path) | 📋 Planned | Intercept → decompress → remap → TLB flush |
 | Compression policy engine | 📋 Planned | Idle time, access frequency, min savings threshold |
-| Multi-algorithm dispatch | 📋 Planned | LZ4 (fast) for hot path, zstd (dense) for cold recompression |
-| Sysfs stats interface | 📋 Planned | pages_compressed, bytes_saved, decompress_count, latency histogram |
-| Concurrency (RCU-safe, per-CPU) | 📋 Planned | No global locks on hot paths |
-| kselftest suite | 📋 Planned | Load/unload, round-trip, stress, stats |
+| Multi-algorithm dispatch | 🔧 In Progress | same_page + advisor in kernel; full algorithm linking pending kernel headers |
+| Sysfs stats interface | ✅ Complete | pages_compressed, pages_decompressed, bytes_saved, compress/decompress count/latency, map_entries |
+| Concurrency (RCU-safe, per-CPU) | ✅ Complete | RCU-safe xarray lookups; spinlock-protected writes; per-CPU compress/decompress buffers |
+| Userspace test driver | ✅ Complete | test_minimem_kernel: same_page, advisor, roundtrip, map, latency budget |
+| kselftest suite | 📋 Planned | In-kernel load/unload, round-trip, stress, stats |
 | Kernel compatibility | 📋 Planned | Latest stable + latest LTS |
 
 ---
