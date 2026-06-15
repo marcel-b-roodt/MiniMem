@@ -1,0 +1,2 @@
+(Project is in research and design phase. No recent additions to polish yet.
+This file will be populated once implementation begins.)

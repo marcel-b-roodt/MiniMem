@@ -1,0 +1,45 @@
+## Transparent in-memory compression for Linux (the "macOS gap")
+Design intent: implement a Linux equivalent of macOS's in-memory compression
+that compresses cold pages while they remain in the process address space.
+macOS has had this since Mavericks (2013) using WKdm. Linux has zram and zswap
+but they only compress pages that are already being evicted to swap. Nobody
+compresses pages that are still mapped. The kernel infrastructure exists:
+PG_idle/PG_young for idle tracking, zsmalloc for compressed storage, page
+fault handlers for decompression. The main work is: PTE marking scheme for
+"compressed in RAM" pages, compression policy, and the compression map data
+structure. Source into TODO.md Stage 1 once algorithm library is benchmarked.
+
+## VRAM compression for AI workloads
+Design intent: LLM inference loads large weight tensors into VRAM. These are
+highly compressible (quantized values with patterns, sparse blocks). No
+current GPU driver does transparent VRAM compression. nvCOMP exists for
+GPU-parallel bulk compression but nobody has wired it into a transparent VRAM
+management layer. Approach: track allocated buffers, classify by type,
+compress idle buffers with specialized algorithms, decompress on GPU access
+via command-stream barriers. The AI workload compressor from Stage 4 could
+feed directly into this. Source into TODO.md Stage 2 once kernel module
+architecture is settled.
+
+## Compression advisor / auto-selector
+Design intent: instead of picking one algorithm for all pages, classify page
+content at compression time and select the best algorithm. Zero pages get
+zero allocation. Pointer-heavy pages get WKdm. Small-delta pages get BDI.
+General pages get LZ4. Cold general pages get re-compressed with zstd. This
+is a generalization of zram's CONFIG_ZRAM_MULTI_COMP. Source into TODO.md
+Stage 4 once multiple algorithms are benchmarked.
+
+## CXL memory with inline compression
+Design intent: Marvell Structera does this in hardware. A software-defined
+approach could make CXL-attached memory usable with compression on any CXL
+device. Pages stored on CXL memory are compressed before transit, reducing
+bandwidth usage and increasing effective capacity. Software LZ4/LZSSE8 on
+the CXL path could complement hardware solutions. Source into TODO.md Stage 3.
+
+## Cross-process page deduplication + compression
+Design intent: KSM merges identical pages across processes. But similar
+pages (e.g., fork COW pages that diverged slightly) cannot be merged. Delta
+encoding between a base page and a diverged copy could achieve high
+compression for nearly-identical pages. This is a generalization of KSM that
+handles "similar but not identical" pages. Research needed on: how to find
+similar pages efficiently, how to store deltas compactly, how to decompress
+on access without excessive overhead. Post-Stage 1.

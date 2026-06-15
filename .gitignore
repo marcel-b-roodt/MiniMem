@@ -1,0 +1,33 @@
+# Build artifacts
+build/
+out/
+*.o
+*.ko
+*.mod
+*.mod.c
+*.cmd
+Module.symvers
+modules.order
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Benchmark reports (generated, large)
+reports/*.csv
+reports/*.json
+
+# Dependencies
+subprojects/*
+!subprojects/*.wrap
+
+# Test binaries
+tests/*.test
+tests/**/*_test
