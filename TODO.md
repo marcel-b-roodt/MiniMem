@@ -2,16 +2,16 @@
 
 ## Stage 0 — Algorithm Library & Benchmarks
 
-- [ ] Benchmark framework setup (Criterion + page/tensor data harness)
-- [ ] LZ4 integration — reference C implementation, SIMD paths, round-trip tests
+- [x] Benchmark framework setup (Criterion + page/tensor data harness)
+- [x] LZ4 integration — reference C v1.10.0 vendored; roundtrip + benchmark tests passing
 - [ ] LZSSE8 integration — SSE4.1 SIMD decompressor, x86-64 only
-- [ ] WKdm implementation — word-oriented memory-page compressor from Wilson et al. 1999
-- [ ] BDI (Base-Delta-Immediate) implementation — cache-line compressor from Pekhimenko et al. 2012
-- [ ] Zstd wrapper — dictionary-trained mode for homogeneous page content
-- [ ] Delta encoding primitives — per-page XOR delta against previous page or base page
-- [ ] Same-page detection — zero-fill and repeated-value page identification (zero allocation)
-- [ ] Algorithm comparison benchmark suite — throughput, latency, ratio on: random pages, zero-heavy pages, pointer-heavy pages, AI weight tensors
-- [ ] Benchmark report format — CSV/JSON output to `reports/`
+- [ ] WKdm implementation — scalar implementation needs ratio improvement; decompress verified
+- [x] BDI (Base-Delta-Immediate) implementation — zero/uniform/small-delta modes; tests passing
+- [x] Zstd wrapper — system zstd 1.5.7 linked; level-1 compression; roundtrip tests passing
+- [x] Delta encoding primitives — XOR delta + recovery; roundtrip tests passing
+- [x] Same-page detection — zero-fill and repeated-value pages; 819:1 on zero; tests passing
+- [x] Algorithm comparison benchmark suite — 5 algorithms x 11 page types; first results published
+- [x] Benchmark report format — CSV/JSON output to reports/
 
 ## Stage 1 — Linux Kernel In-Memory Compression Module
 

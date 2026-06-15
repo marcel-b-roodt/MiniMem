@@ -1,2 +1,14 @@
-(Project is in research and design phase. No recent additions to polish yet.
-This file will be populated once implementation begins.)
+Stage 0 Remaining — Algorithm Library & Benchmarks
+
+- [ ] WKdm ratio improvement — current scalar implementation produces output > input on most page types; need to debug and fix the compression format, or implement a cleaner WKdm from the Wilson et al. spec
+- [ ] LZSSE8 integration — SSE4.1 SIMD decompressor; requires SSE4.1 runtime detection
+- [ ] SIMD paths for LZ4 — SSE2 and AVX2 decompression paths
+- [ ] Zstd dictionary mode — current wrapper uses level-1 compression; add dictionary training for homogeneous pages
+- [ ] Real data benchmarking — collect actual Linux page dumps and AI model weight files; benchmark on real data
+- [ ] WKdm SIMD research — investigate AVX2 gather-based WKdm (research/010)
+
+Stage 1 — Next Steps
+
+- [ ] Kernel module scaffold — loadable module, sysfs stats, clean rmmod
+- [ ] Page idle tracking — PG_idle/PG_young hook
+- [ ] Compression map — VA → zsmalloc handle

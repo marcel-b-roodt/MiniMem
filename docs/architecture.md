@@ -135,11 +135,14 @@ struct minimem_compressor {
 |---|---|---|---|---|
 | LZ4 | 4KB page | General | SSE2/AVX2 | QAT |
 | LZSSE8 | 4KB page | General | SSE4.1 | No |
-| WKdm | 4KB page | Pointer/integer pages | No | No |
+| WKdm-32 | 4KB page (32-bit words) | Pointer/integer pages | No | No |
+| WKdm-64 | 4KB page (64-bit words) | 64-bit pointer pages, zero-heavy | No | No |
 | BDI | 64B cache line | Small-delta pages | No | HW-native |
 | Zstd (dict) | 4KB page | Homogeneous pages | SSE2/AVX2 | No |
-| Delta | 4KB page | Similar to base page | AVX2 XOR | No |
+| Block classifier | 64B block | AI weights, sparse data | No | No |
+| Delta (XOR) | 4KB page | Similar to base page | AVX2 XOR | No |
 | Same-page | 4KB page | Zero/repeated value | No | No |
+| Advisor | 4KB page | Algorithm selector | No | No |
 
 ---
 

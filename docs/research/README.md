@@ -22,6 +22,10 @@ Numbered research documents capturing findings from papers, experiments, and inv
 | [006](006-nvcomp-gpu-compression.md) | nvCOMP GPU Compression | NVIDIA's GPU-parallel compression; >50 GB/s aggregate but high per-op latency |
 | [007](007-delta-encoding-streaming.md) | Delta Encoding & Streaming | XOR deltas, predictive coding, sliding dictionaries from streaming and signal processing |
 | [008](008-ai-workload-compression.md) | AI Workload Compression | Weight tensor properties, quantization patterns, sparse structure; no existing lossless VRAM compressor |
+| [009](009-hybrid-wkdm-lz4.md) | Hybrid WKdm+LZ4 Pipeline | Two-pass compression: WKdm for word structure, LZ4 for byte residuals; potential 2.5-3:1 on mixed pages |
+| [010](010-simd-wkdm-feasibility.md) | SIMD-WKdm Feasibility | No known SIMD WKdm exists; AVX2 gather could enable 4-6x speedup; potential novel contribution |
+| [011](011-block-classification-weights.md) | Block Classification for AI Weights | Per-block classification (zero/sparse/uniform/small-range/dense) achieves 3-8x on quantized weights; highest-impact novel contribution |
+| [012](012-compression-advisor-thresholds.md) | Compression Advisor Thresholds | Decision tree classifier for per-page algorithm selection; <0.5 μs budget; calibrated from benchmark data |
 
 ---
 

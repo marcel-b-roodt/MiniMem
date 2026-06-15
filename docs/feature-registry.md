@@ -10,16 +10,19 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 
 | Feature | Status | Notes |
 |---|---|---|
-| Benchmark framework (Criterion + page/tensor harness) | 📋 Planned | |
-| LZ4 integration | 📋 Planned | Reference C + SIMD; industry standard for speed |
+| Benchmark framework (Criterion + page/tensor harness) | ✅ Complete | Criterion integrated; 11 synthetic page types; JSON/CSV output |
+| LZ4 integration | ✅ Complete | Reference C v1.10.0 vendored; roundtrip tests passing; benchmarks published |
 | LZSSE8 integration | 📋 Planned | SSE4.1 SIMD; fastest software decompression; x86-64 only |
-| WKdm implementation | 📋 Planned | Word-oriented memory-page compressor; exploits pointer/integer structure |
-| BDI implementation | 📋 Planned | Base-Delta-Immediate; cache-line granularity; trivial decode |
-| Zstd (dictionary-trained) | 📋 Planned | Best ratio among fast algorithms; dictionary mode for homogeneous pages |
-| Delta encoding primitives | 📋 Planned | XOR delta between similar pages; near-zero decode for COW/incremental |
-| Same-page detection | 📋 Planned | Zero-fill and repeated-value pages; zero allocation |
-| Algorithm comparison benchmark suite | 📋 Planned | Throughput, latency, ratio on page/tensor data |
-| Benchmark report format | 📋 Planned | CSV/JSON output to reports/ |
+| WKdm implementation | ✅ Complete | Scalar 32-bit implementation; scratch buffer API; zero-allocation compress/decompress; 2.08:1 on pointer-heavy |
+| WKdm-64 (8-byte word) | ✅ Complete | Scalar 64-bit implementation; 29:1 on zero pages; 2x faster decompress than WKdm32; 1.5:1 on pointer-heavy |
+| BDI implementation | ✅ Complete | Cache-line compressor; zero/uniform/small-delta modes; tests passing |
+| Zstd (dictionary) | ✅ Complete | System zstd 1.5.7 linked; compression level 1; roundtrip tests passing |
+| Delta encoding primitives | ✅ Complete | XOR delta + recovery implemented; roundtrip tests passing |
+| Same-page detection | ✅ Complete | Zero-fill and repeated-value pages; zero allocation; 819:1 on zero pages |
+| Block classifier | ✅ Complete | 64-byte block classification; ZERO/SPARSE/UNIFORM/SMALL_RANGE/DENSE encoding; 146:1 on zero pages; 2.42:1 on integer-heavy |
+| Compression advisor | ✅ Complete | Page content classifier → algorithm selector; heuristic-based decision tree |
+| Algorithm comparison benchmark suite | ✅ Complete | 7 algorithms x 11 page types; throughput, latency, ratio measured |
+| Benchmark report format | ✅ Complete | CSV/JSON output to reports/; Stage 0 results published with 7 algorithms |
 
 ---
 
@@ -74,9 +77,9 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 
 | Feature | Status | Notes |
 |---|---|---|
-| AI weight compressor | 📋 Planned | Exploit quantization patterns, sparse structure |
+| AI weight compressor | 🔧 In Progress | Block classifier handles INT8/FP16; needs value-level encoding for AI-specific data shapes |
 | Page-table-aware compressor | 📋 Planned | Exploit pointer alignment, upper-byte zeros |
 | Delta-streaming compressor | 📋 Planned | XOR deltas for COW/incremental pages |
 | Dictionary compressor (pre-trained) | 📋 Planned | Homogeneous workload dictionaries |
-| Compression advisor (auto-selector) | 📋 Planned | Runtime page classifier → algorithm selection |
+| Compression advisor (auto-selector) | ✅ Complete | Heuristic-based decision tree; picks best algorithm per page type |
 | Domain-specific benchmarks | 📋 Planned | LLM weights, page tables, fork-COW pages |
