@@ -1,21 +1,54 @@
-MIT License
+MiniMem — Transparent Lossless Memory Compression
+Copyright (c) 2025-2026 Marcel Roodt
 
-Copyright (c) 2026 MiniMem Contributors
+This project uses a multi-license structure. Each component is licensed under
+the license specified in its source file headers (SPDX-License-Identifier).
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Component Licensing
+-------------------
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Kernel module (src/kernel/)
+  License: GPL-2.0-only
+  The Linux kernel requires loadable modules to be GPL-compatible. All kernel
+  module source files carry "SPDX-License-Identifier: GPL-2.0-only".
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Userspace library (src/lib/)
+  License: MIT
+  The compression library is permissively licensed for broad adoption.
+
+  MIT License:
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+Vendored code
+  LZ4 (src/lib/vendor/lz4/): BSD-2-Clause — Copyright (c) 2011-2020 Yann Collet
+  LZSSE8 (src/lib/vendor/lzsse8/): BSD-3-Clause — Copyright (c) 2016 Conor Stokes
+
+  See the LICENSE files in each vendor directory for full license text.
+
+Documentation, tests, packaging
+  License: MIT (same terms as above)
+
+SPDX Identifiers
+----------------
+
+  GPL-2.0-only  — https://spdx.org/licenses/GPL-2.0-only.html
+  MIT           — https://spdx.org/licenses/MIT.html
+  BSD-2-Clause  — https://spdx.org/licenses/BSD-2-Clause.html
+  BSD-3-Clause  — https://spdx.org/licenses/BSD-3-Clause.html

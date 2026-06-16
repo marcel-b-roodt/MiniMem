@@ -1,6 +1,10 @@
 # Contributing to MiniMem
 
-Thank you for your interest. MiniMem has three distinct contribution layers with different requirements.
+Bug reports, feature requests, and design feedback are welcome via [GitHub Issues](https://github.com/marcel-b-roodt/MiniMem/issues).
+
+**MiniMem is currently closed to pull requests.** The project is developed by a single maintainer with AI assistance (see AI disclosure in [README.md](README.md)). Suggestions and issue discussions are welcome; code contributions are not being accepted at this time.
+
+---
 
 ## Quick Start
 
@@ -42,7 +46,7 @@ meson compile -C build          # userspace library
 - Must expose stats via `/sys/kernel/minimem/`
 - Clean `rmmod` — no resource leaks
 - Test in QEMU VM (`vm-test-minimem.sh`)
-- kselftest compliance (41+ tests)
+- kselftest compliance (42+ tests)
 
 **Kernel patches** (`patches/`) enhance the module but are not required. The module gracefully degrades to kprobe-only mode without them.
 
@@ -95,8 +99,7 @@ Patches must track the kernel version. When updating for a new kernel version:
 
 ### Branch Protection
 - `main` branch requires signed commits + passing CI
-- All changes via pull request — no direct push to `main`
-- At least one review required for merge
+- No direct push to `main`
 
 ### Package Security
 - AUR packages: PGP-sign PKGBUILDs
