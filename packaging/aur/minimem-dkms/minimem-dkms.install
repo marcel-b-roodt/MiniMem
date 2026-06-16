@@ -1,0 +1,36 @@
+post_install() {
+    echo ""
+    echo "MiniMem DKMS module installed."
+    echo ""
+    echo "The module will be auto-built by DKMS when your kernel updates."
+    echo ""
+    echo "To load now (no reboot needed):"
+    echo "  sudo modprobe minimem"
+    echo ""
+    echo "To enable scanner sweep (requires kernel patches + reboot):"
+    echo "  sudo /usr/src/minimem-0.6.0/install.sh $(uname -r)"
+    echo "  # Then rebuild and reboot your kernel"
+    echo ""
+    echo "Check patch status:  cat /sys/kernel/minimem/kernel_patches"
+    echo "Module stats:        cat /sys/kernel/minimem/*"
+}
+
+post_upgrade() {
+    post_install
+}
+
+pre_remove() {
+    if lsmod 2>/dev/null | grep -q "^minimem "; then
+        echo "Unloading minimem module ..."
+        modprobe -r minimem 2>/dev/null || true
+    fi
+}
+
+post_remove() {
+    echo ""
+    echo "MiniMem DKMS module removed."
+    echo "If you applied kernel patches, reverse them:"
+    echo "  sudo /usr/src/minimem-0.6.0/uninstall.sh $(uname -r)"
+    echo "Then rebuild and reboot your kernel."
+    echo ""
+}

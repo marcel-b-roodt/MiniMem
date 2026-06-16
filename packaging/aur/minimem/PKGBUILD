@@ -1,0 +1,30 @@
+# Maintainer: Marcel Broodt <minimem@noreply.github.com>
+pkgname=minimem
+pkgver=0.6.0
+pkgrel=1
+pkgdesc="Transparent lossless memory compression library"
+arch=('x86_64' 'aarch64')
+url="https://github.com/marcel-b-roodt/MiniMem"
+license=('GPL-2.0-only')
+depends=('libzstd')
+makedepends=('meson' 'gcc')
+optdepends=('criterion: build tests and benchmarks')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/marcel-b-roodt/MiniMem/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    arch-meson "$srcdir/MiniMem-$pkgver" build \
+        -Dtests=false
+    meson compile -C build
+}
+
+check() {
+    if command -v criterion >/dev/null 2>&1 || pacman -Qi criterion >/dev/null 2>&1; then
+        meson test -C build --print-errorlogs
+    fi
+}
+
+package() {
+    meson install -C build --destdir "$pkgdir"
+    install -Dm644 "$srcdir/MiniMem-$pkgver/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

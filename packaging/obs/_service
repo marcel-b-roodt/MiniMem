@@ -1,0 +1,16 @@
+<services>
+  <service name="tar_scm">
+    <param name="scm">git</param>
+    <param name="url">https://github.com/marcel-b-roodt/MiniMem.git</param>
+    <param name="revision">v0.6.0</param>
+    <param name="versionformat">0.6.0</param>
+    <param name="filename">minimem</param>
+  </service>
+  <service name="recompress">
+    <param name="file">minimem-0.6.0.tar</param>
+    <param name="compression">gz</param>
+  </service>
+  <service name="set_version">
+    <param name="basename">minimem</param>
+  </service>
+</services>

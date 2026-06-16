@@ -1,0 +1,111 @@
+# Maintainer: Marcel Broodt <minimem@noreply.github.com>
+pkgname=minimem-dkms
+pkgver=0.6.0
+pkgrel=1
+pkgdesc="MiniMem transparent memory compression kernel module (DKMS)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/marcel-b-roodt/MiniMem"
+license=('GPL-2.0-only')
+depends=('dkms')
+optdepends=('linux-headers: build module for current kernel')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/marcel-b-roodt/MiniMem/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+install=minimem-dkms.install
+
+build() {
+    true
+}
+
+_package_kernel_stubs() {
+    local incdir="$1/include"
+    cat > "$incdir/string.h" << 'EOF'
+#ifndef _STRING_H
+#define _STRING_H
+#include <linux/string.h>
+#endif
+EOF
+    cat > "$incdir/stdbool.h" << 'EOF'
+#ifndef __STDBOOL_H
+#define __STDBOOL_H
+#define bool _Bool
+#define true 1
+#define false 0
+#define __bool_true_false_are_defined 1
+#endif
+EOF
+    cat > "$incdir/stdint.h" << 'EOF'
+#ifndef _STDINT_H
+#define _STDINT_H
+#include <linux/types.h>
+typedef u8 uint8_t;
+typedef u16 uint16_t;
+typedef u32 uint32_t;
+typedef u64 uint64_t;
+typedef s8 int8_t;
+typedef s16 int16_t;
+typedef s32 int32_t;
+typedef s64 int64_t;
+#endif
+EOF
+    cat > "$incdir/stddef.h" << 'EOF'
+#ifndef _STDDEF_H
+#define _STDDEF_H
+#include <linux/stddef.h>
+#endif
+EOF
+    cat > "$incdir/stdlib.h" << 'EOF'
+#ifndef _STDLIB_H
+#define _STDLIB_H
+#include <linux/slab.h>
+#include <linux/kernel.h>
+#define malloc(x) kmalloc(x, GFP_KERNEL)
+#define calloc(n, s) kcalloc(n, s, GFP_KERNEL)
+#define free(x) kfree(x)
+#endif
+EOF
+    cat > "$incdir/limits.h" << 'EOF'
+#ifndef _LIMITS_H
+#define _LIMITS_H
+#include <linux/limits.h>
+#include <linux/kernel.h>
+#ifndef CHAR_BIT
+#define CHAR_BIT 8
+#endif
+#ifndef SIZE_MAX
+#define SIZE_MAX (~(size_t)0)
+#endif
+#endif
+EOF
+}
+
+package() {
+    local dkms_dir="$pkgdir/usr/src/minimem-$pkgver"
+    local src_kernel="$srcdir/MiniMem-$pkgver"
+
+    install -d "$dkms_dir/lib/compressors"
+    install -d "$dkms_dir/include"
+    install -d "$dkms_dir/patches"
+
+    install -Dm644 "$src_kernel/dkms/dkms.conf" "$dkms_dir/"
+    install -Dm644 "$src_kernel/dkms/Makefile" "$dkms_dir/"
+    install -Dm755 "$src_kernel/dkms/install.sh" "$dkms_dir/"
+    install -Dm755 "$src_kernel/dkms/uninstall.sh" "$dkms_dir/"
+
+    install -Dm644 "$src_kernel/src/kernel"/*.c "$dkms_dir/"
+    install -Dm644 "$src_kernel/src/kernel"/*.h "$dkms_dir/"
+
+    install -Dm644 "$src_kernel/src/lib/minimem.h" "$dkms_dir/lib/"
+    install -Dm644 "$src_kernel/src/lib/advisor.c" "$dkms_dir/lib/"
+    install -Dm644 "$src_kernel/src/lib/advisor.h" "$dkms_dir/lib/"
+
+    local comp
+    for comp in same_page bdi wkdm wkdm64 block_class lz4_wrap delta; do
+        install -Dm644 "$src_kernel/src/lib/compressors/$comp."* "$dkms_dir/lib/compressors/"
+    done
+
+    install -Dm644 "$src_kernel/patches/minimem-"*.patch "$dkms_dir/patches/"
+
+    _package_kernel_stubs "$dkms_dir"
+
+    install -Dm644 "$src_kernel/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
