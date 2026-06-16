@@ -18,7 +18,8 @@ set -e
 
 VERSION="0.6.0"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-OBS_PROJECT="home:minimem"
+OBS_USER="${OBS_USER:-minimem}"
+OBS_PROJECT="home:${OBS_USER}"
 PACKAGING_DIR="$PROJECT_DIR/packaging"
 
 ACTION="${1:---setup}"
