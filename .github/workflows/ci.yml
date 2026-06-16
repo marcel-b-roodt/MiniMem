@@ -1,0 +1,122 @@
+name: CI — Library Build & Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/lib/**'
+      - 'tests/lib/**'
+      - 'meson.build'
+      - 'meson_options.txt'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/**'
+      - 'tests/lib/**'
+      - 'meson.build'
+      - 'meson_options.txt'
+      - '.github/workflows/ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: "libminimem (${{ matrix.os }}, gcc-${{ matrix.gcc_version }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04]
+        gcc_version: ['14']
+        include:
+          - os: ubuntu-22.04
+            gcc_version: '12'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            meson \
+            ninja-build \
+            pkg-config \
+            libzstd-dev \
+            libcriterion-dev \
+            gcc-${{ matrix.gcc_version }} \
+            g++-${{ matrix.gcc_version }}
+
+      - name: Configure
+        run: |
+          CC=gcc-${{ matrix.gcc_version }} CXX=g++-${{ matrix.gcc_version }} \
+            meson setup build -Dtests=true
+
+      - name: Build
+        run: meson compile -C build
+
+      - name: Test
+        run: meson test -C build --print-errorlogs
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}-gcc${{ matrix.gcc_version }}
+          path: build/meson-logs/
+          retention-days: 7
+
+  build-no-criterion:
+    name: "libminimem (no Criterion, tests disabled)"
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            meson \
+            ninja-build \
+            pkg-config \
+            libzstd-dev
+
+      - name: Configure (tests disabled)
+        run: meson setup build -Dtests=false
+
+      - name: Build
+        run: meson compile -C build
+
+      - name: Verify shared library
+        run: |
+          test -f build/libminimem.so || build/libminimem.so.* || {
+            echo "Shared library not found"; exit 1
+          }
+          echo "Shared library OK"
+
+      - name: Verify static library
+        run: |
+          test -f build/libminimem_static.a || {
+            echo "Static library not found"; exit 1
+          }
+          echo "Static library OK"
+
+  lint-scripts:
+    name: "Shell script lint"
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Lint shell scripts
+        run: |
+          find . -name '*.sh' -not -path './.vm-test/*' | xargs shellcheck -s bash -S warning

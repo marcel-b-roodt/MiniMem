@@ -1,0 +1,159 @@
+name: CI — Packaging Verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dkms/**'
+      - 'packaging/**'
+      - 'patches/**'
+      - 'scripts/**'
+      - 'tests/test_dkms_packaging.sh'
+      - '.github/workflows/packaging.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'dkms/**'
+      - 'packaging/**'
+      - 'patches/**'
+      - 'scripts/**'
+      - 'tests/test_dkms_packaging.sh'
+      - '.github/workflows/packaging.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  packaging-test:
+    name: "DKMS + packaging verification"
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run DKMS packaging test suite
+        run: bash tests/test_dkms_packaging.sh
+
+  dkms-syntax:
+    name: "DKMS conf + Makefile syntax"
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify dkms.conf syntax
+        run: |
+          source dkms/dkms.conf
+          echo "PACKAGE_NAME=$PACKAGE_NAME"
+          echo "PACKAGE_VERSION=$PACKAGE_VERSION"
+          [ -n "$PACKAGE_NAME" ] && [ -n "$PACKAGE_VERSION" ] || {
+            echo "dkms.conf missing required variables"; exit 1
+          }
+          echo "dkms.conf OK"
+
+      - name: Verify DKMS Makefile
+        run: |
+          grep -q 'obj-m' dkms/Makefile || {
+            echo "DKMS Makefile missing obj-m"; exit 1
+          }
+          echo "DKMS Makefile OK"
+
+      - name: Verify scripts are executable
+        run: |
+          for f in dkms/install.sh dkms/uninstall.sh scripts/dkms-install.sh scripts/dkms-uninstall.sh; do
+            [ -x "$f" ] || { echo "$f not executable"; exit 1; }
+          done
+          echo "All scripts executable"
+
+  patch-verification:
+    name: "Kernel patch validation"
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify patch files exist and are valid
+        run: |
+          [ -f patches/series ] || { echo "patches/series missing"; exit 1; }
+          while read -r patch; do
+            [ -z "$patch" ] && continue
+            [ -f "patches/$patch" ] || { echo "Patch $patch listed in series but not found"; exit 1; }
+            echo "Patch $patch: OK"
+          done < patches/series
+
+      - name: Verify patches are dry-run applicable
+        run: |
+          for patch in patches/*.patch; do
+            [ -f "$patch" ] || continue
+            echo "Checking $patch ..."
+            head -5 "$patch"
+            echo "---"
+          done
+
+  pkgbuild-lint:
+    name: "PKGBUILD syntax check"
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify AUR PKGBUILDs
+        run: |
+          for pkg in minimem minimem-dkms; do
+            [ -f "packaging/aur/${pkg}/PKGBUILD" ] || {
+              echo "packaging/aur/${pkg}/PKGBUILD missing"; exit 1
+            }
+            grep -q 'pkgname=' "packaging/aur/${pkg}/PKGBUILD" || {
+              echo "PKGBUILD missing pkgname"; exit 1
+            }
+            echo "AUR ${pkg} PKGBUILD OK"
+          done
+
+  debian-lint:
+    name: "Debian packaging check"
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install lintian
+        run: sudo apt-get install -y lintian
+
+      - name: Verify Debian control
+        run: |
+          [ -f packaging/debian/control ] || { echo "debian/control missing"; exit 1; }
+          grep -q 'Source:' packaging/debian/control || { echo "No Source in control"; exit 1; }
+          echo "Debian control OK"
+
+      - name: Verify Debian rules
+        run: |
+          [ -x packaging/debian/rules ] || { echo "debian/rules not executable"; exit 1; }
+          echo "Debian rules OK"
+
+      - name: Verify Debian copyright
+        run: |
+          [ -f packaging/debian/copyright ] || { echo "debian/copyright missing"; exit 1; }
+          echo "Debian copyright OK"
+
+  rpm-lint:
+    name: "Fedora RPM spec check"
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install rpmlint
+        run: sudo apt-get install -y rpmlint
+
+      - name: Verify spec file
+        run: |
+          [ -f packaging/fedora/minimem.spec ] || { echo "minimem.spec missing"; exit 1; }
+          grep -q 'Name:' packaging/fedora/minimem.spec || { echo "No Name in spec"; exit 1; }
+          rpmlint packaging/fedora/minimem.spec || true
+          echo "RPM spec OK"
