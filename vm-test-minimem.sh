@@ -179,10 +179,36 @@ echo "=== Running E2E test ==="
 sh /minimem_e2e_test.sh
 echo ""
 
+# Re-load module if E2E test unloaded it
+if [ ! -d /sys/kernel/minimem ]; then
+    echo "Re-loading minimem module (E2E test unloaded it)..."
+    insmod /minimem.ko
+    sleep 1
+fi
+
 # Run transparent compression test (compress → PTE replace → fault → verify)
 echo "=== Running transparent compression test ==="
 sh /test_transparent_compress.sh
 echo ""
+
+# Run stress tests if available
+if [ -x /test_stress_concurrent ]; then
+    echo "=== Running concurrent fault stress test ==="
+    /test_stress_concurrent 8 4 2
+    echo ""
+fi
+
+if [ -x /test_stress_unload ]; then
+    echo "=== Running module unload safety test ==="
+    /test_stress_unload
+    echo ""
+fi
+
+if [ -x /test_stress_pressure ]; then
+    echo "=== Running memory pressure stress test ==="
+    /test_stress_pressure 16 2
+    echo ""
+fi
 
 # Check for kernel errors after kselftest
 echo "=== Kernel log after kselftest ==="
@@ -327,6 +353,14 @@ INITEOF
     # Copy static E2E test binary
     cp "$SCRIPT_DIR/tests/kernel/test_transparent_e2e" "$root/test_transparent_e2e"
     chmod +x "$root/test_transparent_e2e"
+
+    # Copy stress test binaries (if built)
+    for bin in test_stress_concurrent test_stress_pressure test_stress_unload; do
+        if [ -f "$SCRIPT_DIR/tests/kernel/$bin" ]; then
+            cp "$SCRIPT_DIR/tests/kernel/$bin" "$root/$bin"
+            chmod +x "$root/$bin"
+        fi
+    done
 
     # Copy kernel modules we need (lz4_compress)
     local kmod_dir="/lib/modules/$(uname -r)"

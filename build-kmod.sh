@@ -133,6 +133,26 @@ STUB
         echo "To unload: sudo rmmod minimem"
         echo "Stats:     cat /sys/kernel/minimem/*"
         ;;
+    tests)
+        echo "Building VM test binaries..."
+        mkdir -p "$SCRIPT_DIR/tests/kernel"
+
+        for src in test_stress_concurrent test_stress_pressure test_stress_unload test_transparent_e2e; do
+            if [ -f "$SCRIPT_DIR/tests/kernel/${src}.c" ]; then
+                echo "  Building $src ..."
+                gcc -static -o "$SCRIPT_DIR/tests/kernel/$src" \
+                    "$SCRIPT_DIR/tests/kernel/${src}.c" \
+                    -lpthread 2>/dev/null || \
+                gcc -static -o "$SCRIPT_DIR/tests/kernel/$src" \
+                    "$SCRIPT_DIR/tests/kernel/${src}.c" 2>/dev/null || {
+                    echo "  Warning: failed to build $src"
+                    continue
+                }
+            fi
+        done
+
+        echo "Test binaries built in tests/kernel/"
+        ;;
     load)
         sudo insmod "$SCRIPT_DIR/src/kernel/minimem.ko"
         echo "Module loaded. Stats:"
@@ -150,10 +170,11 @@ STUB
         done
         ;;
     *)
-        echo "Usage: $0 {build|clean|load|unload|stats}"
+        echo "Usage: $0 {build|clean|tests|load|unload|stats}"
         echo ""
         echo "  build   - Build the kernel module (default)"
         echo "  clean   - Remove build directory"
+        echo "  tests   - Build static VM test binaries"
         echo "  load    - Load the module with sudo"
         echo "  unload  - Unload the module with sudo"
         echo "  stats   - Show /sys/kernel/minimem/ stats"

@@ -33,6 +33,15 @@ subprojects/*
 # Test binaries
 tests/*.test
 tests/**/*_test
+tests/kernel/test_transparent_e2e
+tests/kernel/test_stress_concurrent
+tests/kernel/test_stress_pressure
+tests/kernel/test_stress_unload
+
+# Example binaries
+examples/minimem_compress_buffer
+examples/minimem_decompress_file
+examples/*
 
 # VM test artifacts (downloaded rootfs, cpio, logs)
 .vm-test/
