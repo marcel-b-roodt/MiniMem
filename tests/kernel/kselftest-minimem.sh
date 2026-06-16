@@ -59,7 +59,7 @@ compress_count decompress_count compress_ns_total decompress_ns_total
 zswap_pages zswap_bytes zswap_saved pool_pages
 scanner_enabled scanner_interval_ms min_savings_pct
 scanner_pages_scanned scanner_pages_idle scanner_pages_compressed scanner_pages_skipped
-hook_faults max_pool_pages"
+hook_faults kernel_patches max_pool_pages"
 
 for attr in $REQUIRED_ATTRS; do
     if [ -f "$SYSDIR/$attr" ]; then

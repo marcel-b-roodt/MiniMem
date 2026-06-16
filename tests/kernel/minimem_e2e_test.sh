@@ -68,6 +68,13 @@ else
     fail "hook_faults sysfs attribute missing"
 fi
 
+if [ -f "$SYSDIR/kernel_patches" ]; then
+    KPVAL=$(cat "$SYSDIR/kernel_patches" 2>/dev/null)
+    pass "kernel_patches sysfs attribute exists (value=$KPVAL)"
+else
+    fail "kernel_patches sysfs attribute missing"
+fi
+
 # Check if kprobe on do_swap_page registered
 if echo "$HOOK_MSG" | grep -q "kprobe registered"; then
     pass "kprobe registered on do_swap_page"
