@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-22.04]
+        os: [ubuntu-24.04]
 
     steps:
       - name: Checkout
@@ -41,6 +41,9 @@ jobs:
             linux-headers-$(uname -r) \
             make \
             gcc
+
+      - name: Print kernel version
+        run: uname -r
 
       - name: Build kernel module
         run: bash build-kmod.sh build 2>&1

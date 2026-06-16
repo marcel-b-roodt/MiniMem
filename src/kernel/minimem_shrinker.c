@@ -8,7 +8,7 @@
  * pages are restored to their original state, not silently discarded.
  *
  * Uses the modern shrinker API (shrinker_alloc/shrinker_register/shrinker_free)
- * available in Linux 6.x.
+ * available in Linux 6.2+.
  */
 
 #include <linux/kernel.h>
