@@ -122,7 +122,9 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install lintian
-        run: sudo apt-get install -y lintian
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lintian
 
       - name: Verify Debian control
         run: |
@@ -149,7 +151,9 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install rpmlint
-        run: sudo apt-get install -y rpmlint
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpmlint
 
       - name: Verify spec file
         run: |
