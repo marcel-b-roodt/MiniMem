@@ -42,20 +42,24 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Parallel cluster decompression | ✅ Complete | Workqueue-based (minimem_dec); atomic completion; 32-page clusters; **3.76× speedup on 4 vCPUs** |
 | QEMU VM test harness | ✅ Complete | vm-test-minimem.sh; Alpine rootfs; safe bare-metal isolation; 7-phase progressive testing |
 | Multi-algorithm dispatch | ✅ Complete | 7 algorithms wired into kernel dispatch; same_page, BDI, WKdm, WKdm-64, block_class, LZ4, delta |
-| Sysfs stats interface | ✅ Complete | 25 attributes: compress/decompress counts, latencies, zswap pages/bytes/saved, pool_pages, max_pool_pages, benchmark timings, scanner knobs, hook_faults, scanner_pages_compressed/skipped |
+| Sysfs stats interface | ✅ Complete | 28 attributes: compress/decompress counts, latencies, zswap pages/bytes/saved, pool_pages, max_pool_pages, benchmark timings, scanner knobs, hook_faults, kernel_patches, parallel stats, scanner_pages_compressed/skipped |
 | Memory overhead tracking | ✅ Complete | pool_pages sysfs attribute; zswap_pages/bytes/saved for compression efficiency |
 | Concurrency (RCU-safe, per-CPU) | ✅ Complete | RCU-safe xarray lookups; spinlock-protected writes; per-CPU compress/decompress buffers |
-| PTE marking for compressed pages | 🔧 In Progress | PTE_MARKER_MINIMEM=BIT(3) in SWP_PTE_MARKER offset; 54-bit index space; debugfs roundtrip test; compress_and_replace_pte implemented via resolved kallsyms symbols |
-| Page fault handler (decompress path) | ✅ Complete | kprobe on do_swap_page; __pte_offset_map_lock and pte_mkwrite resolved via kallsyms; set_pte_at implemented as WRITE_ONCE (x86-64); installs present PTE after decompression; all symbols resolve on 6.18 with CONFIG_KALLSYMS_ALL=y |
-| PTE replacement (compress path) | ✅ Complete | minimem_compress_and_replace_pte() walks pgd→p4d→pud→pmd→pte; compresses page; stores in zsmalloc; replaces PTE with MiniMem swap entry; enforces min_savings_pct |
-| E2E test suite | ✅ Complete | minimem_e2e_test.sh: hook symbol resolution, compression roundtrip, min_savings_pct enforcement, max_pool_pages enforcement, scanner detection, decompression accounting, module lifecycle; 15 tests passing in QEMU VM |
-| Idle page tracking | ✅ Complete | minimem_scanner daemon; CONFIG_PAGE_IDLE_FLAG; PFN batch scanning; compresses idle pages into zsmalloc; respects min_savings_pct threshold; updates pages_compressed/skipped counters |
+| PTE marking for compressed pages | ✅ Complete | PTE_MARKER_MINIMEM=BIT(3) in SWP_PTE_MARKER offset; 54-bit index space; debugfs roundtrip test; compress_and_replace_pte implemented via resolved kallsyms symbols; MM_ANONPAGES RSS counter maintained |
+| Page fault handler (decompress path) | ✅ Complete | kprobe on do_swap_page; __pte_offset_map_lock and pte_mkwrite resolved via kallsyms; set_pte_at implemented as WRITE_ONCE (x86-64); installs present PTE after decompression; MM_ANONPAGES RSS counter incremented; **4/4 pages decompressed correctly in E2E VM test** |
+| PTE replacement (compress path) | ✅ Complete | minimem_compress_and_replace_pte() walks pgd→p4d→pud→pmd→pte; compresses page; stores in zsmalloc; replaces PTE with MiniMem swap entry; enforces min_savings_pct; MM_ANONPAGES RSS counter decremented; **compress_vaddr debugfs interface for E2E testing** |
+| E2E test suite | ✅ Complete | minimem_e2e_test.sh: hook resolution, compression roundtrip, min_savings_pct/max_pool_pages enforcement, scanner; test_transparent_e2e: 4 pages compressed + PTE replaced + fault-decompressed with byte-exact verification in QEMU VM |
+| Idle page tracking | ✅ Complete | minimem_scanner daemon; CONFIG_PAGE_IDLE_FLAG; PFN batch scanning; VMA-based mark-sweep scanning; mark pass sets idle+clears young on anonymous pages; sweep pass compresses cold pages; **sweep pass enabled on patched kernels (via minimem_hook_marker_ready), disabled on unpatched kernels** |
 | Memory pressure shrinker | ✅ Complete | shrinker_alloc/register/free API; drains compressed entries via minimem_map_drain(); frees zsmalloc memory under pressure |
 | Pool size limit | ✅ Complete | max_pool_pages sysfs knob (0=unlimited); compress_and_store returns -ENOSPC when limit reached |
 | Sysfs knobs (scanner + policy) | ✅ Complete | scanner_enabled, scanner_interval_ms, min_savings_pct, max_pool_pages, scanner_pages_scanned/idle/compressed/skipped |
 | Userspace test driver | ✅ Complete | test_minimem_kernel: same_page, advisor, roundtrip, map, latency budget |
-| kselftest suite | ✅ Complete | 41 tests: module load/unload, sysfs attributes, debugfs, PTE marker roundtrip, compression roundtrip, benchmark, sysfs knobs (max_pool_pages, min_savings_pct, scanner) |
+| kselftest suite | ✅ Complete | 42 tests: module load/unload, sysfs attributes (incl. kernel_patches), debugfs, PTE marker roundtrip, compression roundtrip, benchmark, sysfs knobs |
+| Stress tests (VM) | ✅ Complete | Concurrent fault stress, memory pressure + shrinker, module unload safety — all pass in QEMU VM |
 | Kernel compatibility | ✅ Complete | Built for 6.18.33-1-MANJARO; zsmalloc 6.x API |
+| DKMS packaging | ✅ Complete | dkms.conf, DKMS Makefile, install/uninstall scripts, convenience scripts; auto-rebuild per kernel update; kernel patch application support |
+| Kernel patch detection | ✅ Complete | Runtime detection of minimem_register_fault_handler symbol; registers VM_FAULT_NOPAGE handler when patches present; falls back to kprobe on unpatched kernels; kernel_patches sysfs attribute |
+| Scanner sweep (patched kernels) | ✅ Complete | minimem_hook_marker_ready() returns true when kernel patches detected; sweep pass compresses cold pages; handle_pte_marker returns VM_FAULT_NOPAGE via registered handler |
 
 ---
 
