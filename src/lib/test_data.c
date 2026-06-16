@@ -110,11 +110,44 @@ static void generate_pte(uint8_t *buf, size_t len, uint64_t seed)
     }
 }
 
-static uint16_t float_to_bf16(float f)
+static uint16_t float_to_fp16(float f)
 {
     uint32_t bits;
     memcpy(&bits, &f, sizeof(bits));
-    return (uint16_t)(bits >> 16);
+    uint32_t sign = (bits >> 16) & 0x8000;
+    int32_t exponent = (int32_t)((bits >> 23) & 0xff) - 127;
+    uint32_t mantissa = bits & 0x7fffff;
+
+    if (exponent == -127) {
+        if (mantissa == 0) return (uint16_t)sign;
+        uint32_t shift = __builtin_clz(mantissa) - 8;
+        mantissa <<= shift;
+        exponent = -126 - (int32_t)shift;
+        mantissa &= 0x7fffff;
+    }
+
+    if (exponent > 15) {
+        return (uint16_t)(sign | 0x7c00);
+    }
+    if (exponent < -24) {
+        return (uint16_t)sign;
+    }
+
+    uint16_t fp16_sign = (uint16_t)(sign);
+    uint16_t fp16_exp;
+    uint16_t fp16_mant;
+
+    if (exponent >= -14) {
+        fp16_exp = (uint16_t)((exponent + 15) << 10);
+        fp16_mant = (uint16_t)(mantissa >> 13);
+        return fp16_sign | fp16_exp | fp16_mant;
+    }
+
+    int32_t shift = -14 - exponent;
+    if (shift >= 11) return (uint16_t)sign;
+    uint32_t shifted_mant = mantissa | 0x800000;
+    fp16_mant = (uint16_t)(shifted_mant >> (shift + 10));
+    return fp16_sign | fp16_mant;
 }
 
 static void generate_ai_fp16(uint8_t *buf, size_t len, uint64_t seed)
@@ -122,23 +155,51 @@ static void generate_ai_fp16(uint8_t *buf, size_t len, uint64_t seed)
     uint64_t state = seed;
     size_t n_values = len / sizeof(uint16_t);
 
-    float base = -0.5f + (float)(splitmix64(&state) % 1000) / 1000.0f;
-    float scale = 0.01f;
-
     float *values = malloc(n_values * sizeof(float));
     if (!values)
         return;
 
-    for (size_t i = 0; i < n_values; i++) {
+    size_t block_size = 32;
+    size_t i = 0;
+    while (i < n_values) {
         uint64_t r = splitmix64(&state);
-        if (r % 20 == 0) {
-            values[i] = 0.0f;
+        size_t blen = block_size;
+        if (i + blen > n_values)
+            blen = n_values - i;
+
+        if (r % 8 == 0) {
+            for (size_t j = 0; j < blen; j++)
+                values[i + j] = 0.0f;
+        } else if (r % 4 == 0) {
+            float base = (float)((int64_t)(splitmix64(&state) % 7) - 3) * 0.125f;
+            for (size_t j = 0; j < blen; j++)
+                values[i + j] = base;
         } else {
-            float noise = (float)((int64_t)(r & 0xff) - 128) * scale;
-            values[i] = base + noise;
+            int64_t exp_choice = (int64_t)(splitmix64(&state) % 5) - 2;
+            float base;
+            switch (exp_choice) {
+            case -2: base = 0.00390625f; break;
+            case -1: base = 0.0625f; break;
+            case  0: base = 1.0f; break;
+            case  1: base = 16.0f; break;
+            case  2: base = 256.0f; break;
+            default: base = 1.0f; break;
+            }
+            if (splitmix64(&state) % 5 == 0)
+                base = -base;
+            float scale = base * 0.001f;
+            for (size_t j = 0; j < blen; j++) {
+                uint64_t nr = splitmix64(&state);
+                float noise = (float)((int64_t)(nr & 0xf) - 8) * scale;
+                values[i + j] = base + noise;
+            }
         }
-        uint16_t bf16 = float_to_bf16(values[i]);
-        memcpy(buf + i * sizeof(uint16_t), &bf16, sizeof(uint16_t));
+        i += blen;
+    }
+
+    for (size_t vi = 0; vi < n_values; vi++) {
+        uint16_t fp16 = float_to_fp16(values[vi]);
+        memcpy(buf + vi * sizeof(uint16_t), &fp16, sizeof(uint16_t));
     }
 
     free(values);
@@ -147,17 +208,33 @@ static void generate_ai_fp16(uint8_t *buf, size_t len, uint64_t seed)
 static void generate_ai_int8(uint8_t *buf, size_t len, uint64_t seed)
 {
     uint64_t state = seed;
-    int8_t base = (int8_t)((splitmix64(&state) >> 8) & 0xff);
+    size_t row_size = 64;
+    size_t n_rows = len / row_size;
+    int8_t prev_row[64];
 
-    for (size_t i = 0; i < len; i++) {
-        uint64_t r = splitmix64(&state);
-        if (r % 10 == 0) {
-            buf[i] = 0;
-        } else if (r % 5 == 0) {
-            buf[i] = base;
-        } else {
-            int8_t delta = (int8_t)((r >> 16) & 0x1f) - 16;
-            buf[i] = (int8_t)(base + delta);
+    memset(prev_row, 0, row_size);
+
+    for (size_t row = 0; row < n_rows; row++) {
+        int8_t base_val = (int8_t)((splitmix64(&state) >> 4) & 0x3f) - 32;
+
+        for (size_t col = 0; col < row_size; col++) {
+            uint64_t r = splitmix64(&state);
+            if (row == 0 || r % 3 == 0) {
+                int8_t delta = (int8_t)((r >> 8) & 0x1f) - 16;
+                buf[row * row_size + col] = (int8_t)(base_val + delta);
+            } else {
+                int8_t delta = (int8_t)(((r >> 8) & 0x7) - 4);
+                buf[row * row_size + col] = (int8_t)(prev_row[col] + delta);
+            }
+        }
+        memcpy(prev_row, buf + row * row_size, row_size);
+    }
+
+    size_t remainder = len - n_rows * row_size;
+    if (remainder > 0) {
+        for (size_t i = 0; i < remainder; i++) {
+            uint64_t r = splitmix64(&state);
+            buf[n_rows * row_size + i] = (int8_t)((r >> 4) & 0xff);
         }
     }
 }

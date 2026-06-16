@@ -45,23 +45,23 @@ uint8_t minimem_classify_block(const uint8_t *block, size_t block_size)
     return classify_block_impl(block, block_size, NULL, NULL, NULL, NULL);
 }
 
-#define BITS_PER_TYPE 3
+#define MINIMEM_BITS_PER_TYPE 3
 
 static void pack_types(const uint8_t *types, size_t n_types, uint8_t *out)
 {
-    memset(out, 0, (n_types * BITS_PER_TYPE + 7) / 8);
+    memset(out, 0, (n_types * MINIMEM_BITS_PER_TYPE + 7) / 8);
     for (size_t i = 0; i < n_types; i++) {
-        size_t bit_pos = i * BITS_PER_TYPE;
+        size_t bit_pos = i * MINIMEM_BITS_PER_TYPE;
         out[bit_pos / 8] |= ((types[i] & 0x07) << (bit_pos % 8));
-        if (bit_pos % 8 + BITS_PER_TYPE > 8)
+        if (bit_pos % 8 + MINIMEM_BITS_PER_TYPE > 8)
             out[bit_pos / 8 + 1] |= ((types[i] & 0x07) >> (8 - bit_pos % 8));
     }
 }
 
 static uint8_t unpack_type(const uint8_t *packed, size_t index)
 {
-    size_t bit_pos = index * BITS_PER_TYPE;
-    if (bit_pos % 8 + BITS_PER_TYPE <= 8)
+    size_t bit_pos = index * MINIMEM_BITS_PER_TYPE;
+    if (bit_pos % 8 + MINIMEM_BITS_PER_TYPE <= 8)
         return (packed[bit_pos / 8] >> (bit_pos % 8)) & 0x07;
     return ((packed[bit_pos / 8] >> (bit_pos % 8)) |
             (packed[bit_pos / 8 + 1] << (8 - bit_pos % 8))) & 0x07;
@@ -103,7 +103,7 @@ size_t minimem_block_class_compress(const uint8_t *src, size_t src_len,
         range_deltas[b] = range_max - range_min;
     }
 
-    size_t header_bytes = (n_blocks * BITS_PER_TYPE + 7) / 8;
+    size_t header_bytes = (n_blocks * MINIMEM_BITS_PER_TYPE + 7) / 8;
 
     uint8_t *out = dst;
     uint16_t n_blocks_le = (uint16_t)n_blocks;

@@ -1,6 +1,7 @@
 # Build artifacts
 build/
 builddir/
+builddir_release/
 out/
 *.o
 *.ko
@@ -32,3 +33,6 @@ subprojects/*
 # Test binaries
 tests/*.test
 tests/**/*_test
+
+# VM test artifacts (downloaded rootfs, cpio, logs)
+.vm-test/

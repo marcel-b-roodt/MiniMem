@@ -3,8 +3,18 @@
  * minimem_main.c — MiniMem transparent in-memory page compression module
  *
  * Provides transparent compression of cold memory pages using multiple
- * algorithms (same-page detection, BDI, WKdm, LZ4) with sysfs stats.
- * Uses per-CPU buffers for compression and xarray-based compression map.
+ * algorithms (same-page detection, BDI, WKdm, WKdm-64, block classifier,
+ * LZ4) with sysfs stats and debugfs test interface.
+ *
+ * Three test modes via debugfs:
+ * - baseline:  memcpy roundtrip (no compression) — raw memory copy latency
+ * - serial:    compress → store → decompress → restore, one page at a time
+ * - parallel:  compress cluster → decompress cluster via workqueue
+ *
+ * Architecture:
+ *   minimem_zswap  — zsmalloc storage + compression map
+ *   minimem_fault  — debugfs interface + fault hook (future)
+ *   minimem_parallel — workqueue-based cluster decompression
  */
 
 #include <linux/module.h>
@@ -14,14 +24,21 @@
 #include <linux/atomic.h>
 #include <linux/sysfs.h>
 #include <linux/kobject.h>
+#include <linux/debugfs.h>
+#include <linux/slab.h>
+#include <linux/ktime.h>
+#include <linux/highmem.h>
+#include <linux/uaccess.h>
+#include <linux/zsmalloc.h>
 
 #include "minimem_compress.h"
-#include "minimem_map.h"
+#include "minimem_zswap.h"
+#include "minimem_parallel.h"
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("MiniMem Project");
 MODULE_DESCRIPTION("Transparent in-memory page compression");
-MODULE_VERSION("0.2.0");
+MODULE_VERSION("0.3.0");
 
 static struct minimem_stats {
 	atomic64_t pages_compressed;
@@ -33,8 +50,13 @@ static struct minimem_stats {
 	atomic64_t decompress_ns_total;
 } minimem_stats;
 
-static struct minimem_map minimem_map;
+static atomic64_t bench_baseline_ns;
+static atomic64_t bench_serial_ns;
+static atomic64_t bench_parallel_ns;
+static atomic64_t bench_pages;
+
 static struct kobject *minimem_kobj;
+static struct dentry *minimem_debugfs_dir;
 
 /* ---- Sysfs attributes ---- */
 
@@ -111,10 +133,81 @@ static ssize_t compress_avg_ns_show(struct kobject *kobj,
 	return sprintf(buf, "%lld\n", total / count);
 }
 
-static ssize_t map_entries_show(struct kobject *kobj,
+static ssize_t zswap_pages_show(struct kobject *kobj,
 				struct kobj_attribute *attr, char *buf)
 {
-	return sprintf(buf, "%ld\n", minimem_map_count(&minimem_map));
+	return sprintf(buf, "%lu\n", minimem_zswap_stored_pages());
+}
+
+static ssize_t zswap_bytes_show(struct kobject *kobj,
+				struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_zswap_total_bytes());
+}
+
+static ssize_t zswap_saved_show(struct kobject *kobj,
+				struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_zswap_bytes_saved());
+}
+
+static ssize_t pool_pages_show(struct kobject *kobj,
+			       struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", zs_get_total_pages(minimem_zswap_pool()));
+}
+
+static ssize_t parallel_clusters_show(struct kobject *kobj,
+				      struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lld\n",
+		       atomic64_read(&minimem_par_stats.clusters_decompressed));
+}
+
+static ssize_t parallel_pages_show(struct kobject *kobj,
+				   struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lld\n",
+		       atomic64_read(&minimem_par_stats.pages_decompressed));
+}
+
+static ssize_t bench_baseline_ns_show(struct kobject *kobj,
+				      struct kobj_attribute *attr, char *buf)
+{
+	s64 pages = atomic64_read(&bench_pages);
+	s64 total = atomic64_read(&bench_baseline_ns);
+
+	if (pages == 0)
+		return sprintf(buf, "0 total_ns 0 avg_ns\n");
+
+	return sprintf(buf, "%lld total_ns %lld avg_ns\n",
+		       total, total / pages);
+}
+
+static ssize_t bench_serial_ns_show(struct kobject *kobj,
+				     struct kobj_attribute *attr, char *buf)
+{
+	s64 pages = atomic64_read(&bench_pages);
+	s64 total = atomic64_read(&bench_serial_ns);
+
+	if (pages == 0)
+		return sprintf(buf, "0 total_ns 0 avg_ns\n");
+
+	return sprintf(buf, "%lld total_ns %lld avg_ns\n",
+		       total, total / pages);
+}
+
+static ssize_t bench_parallel_ns_show(struct kobject *kobj,
+				      struct kobj_attribute *attr, char *buf)
+{
+	s64 pages = atomic64_read(&bench_pages);
+	s64 total = atomic64_read(&bench_parallel_ns);
+
+	if (pages == 0)
+		return sprintf(buf, "0 total_ns 0 avg_ns\n");
+
+	return sprintf(buf, "%lld total_ns %lld avg_ns\n",
+		       total, total / pages);
 }
 
 static struct kobj_attribute pages_compressed_attr =
@@ -135,8 +228,24 @@ static struct kobj_attribute decompress_avg_ns_attr =
 	__ATTR(decompress_avg_ns, 0444, decompress_avg_ns_show, NULL);
 static struct kobj_attribute compress_avg_ns_attr =
 	__ATTR(compress_avg_ns, 0444, compress_avg_ns_show, NULL);
-static struct kobj_attribute map_entries_attr =
-	__ATTR(map_entries, 0444, map_entries_show, NULL);
+static struct kobj_attribute zswap_pages_attr =
+	__ATTR(zswap_pages, 0444, zswap_pages_show, NULL);
+static struct kobj_attribute zswap_bytes_attr =
+	__ATTR(zswap_bytes, 0444, zswap_bytes_show, NULL);
+static struct kobj_attribute zswap_saved_attr =
+	__ATTR(zswap_saved, 0444, zswap_saved_show, NULL);
+static struct kobj_attribute pool_pages_attr =
+	__ATTR(pool_pages, 0444, pool_pages_show, NULL);
+static struct kobj_attribute parallel_clusters_attr =
+	__ATTR(parallel_clusters, 0444, parallel_clusters_show, NULL);
+static struct kobj_attribute parallel_pages_attr =
+	__ATTR(parallel_pages, 0444, parallel_pages_show, NULL);
+static struct kobj_attribute bench_baseline_ns_attr =
+	__ATTR(bench_baseline_ns, 0444, bench_baseline_ns_show, NULL);
+static struct kobj_attribute bench_serial_ns_attr =
+	__ATTR(bench_serial_ns, 0444, bench_serial_ns_show, NULL);
+static struct kobj_attribute bench_parallel_ns_attr =
+	__ATTR(bench_parallel_ns, 0444, bench_parallel_ns_show, NULL);
 
 static struct attribute *minimem_attrs[] = {
 	&pages_compressed_attr.attr,
@@ -148,12 +257,262 @@ static struct attribute *minimem_attrs[] = {
 	&decompress_ns_total_attr.attr,
 	&decompress_avg_ns_attr.attr,
 	&compress_avg_ns_attr.attr,
-	&map_entries_attr.attr,
+	&zswap_pages_attr.attr,
+	&zswap_bytes_attr.attr,
+	&zswap_saved_attr.attr,
+	&pool_pages_attr.attr,
+	&parallel_clusters_attr.attr,
+	&parallel_pages_attr.attr,
+	&bench_baseline_ns_attr.attr,
+	&bench_serial_ns_attr.attr,
+	&bench_parallel_ns_attr.attr,
 	NULL,
 };
 
 static struct attribute_group minimem_attr_group = {
 	.attrs = minimem_attrs,
+};
+
+/* ---- Debugfs test interface ---- */
+
+#define MINIMEM_BENCH_PAGES 32
+
+static ssize_t bench_write(struct file *file, const char __user *buf,
+			   size_t count, loff_t *ppos)
+{
+	char kbuf[32];
+	ktime_t start;
+	u64 elapsed;
+	struct page **pages;
+	unsigned long *vaddrs;
+	int i, ret;
+
+	if (count > 31)
+		return -EINVAL;
+
+	if (copy_from_user(kbuf, buf, count))
+		return -EFAULT;
+
+	kbuf[count] = '\0';
+	if (count > 0 && kbuf[count - 1] == '\n')
+		kbuf[count - 1] = '\0';
+
+	pages = kmalloc_array(MINIMEM_BENCH_PAGES, sizeof(*pages), GFP_KERNEL);
+	if (!pages)
+		return -ENOMEM;
+
+	vaddrs = kmalloc_array(MINIMEM_BENCH_PAGES, sizeof(*vaddrs),
+			       GFP_KERNEL);
+	if (!vaddrs) {
+		kfree(pages);
+		return -ENOMEM;
+	}
+
+	for (i = 0; i < MINIMEM_BENCH_PAGES; i++) {
+		pages[i] = alloc_page(GFP_KERNEL);
+		if (!pages[i]) {
+			for (int j = 0; j < i; j++)
+				__free_page(pages[j]);
+			kfree(pages);
+			kfree(vaddrs);
+			return -ENOMEM;
+		}
+		vaddrs[i] = 0xDEAD0000UL + (i * PAGE_SIZE);
+	}
+
+	if (strcmp(kbuf, "baseline") == 0) {
+		void *src;
+		void *tmpbuf;
+
+		tmpbuf = kmalloc(MINIMEM_PAGE_SIZE, GFP_KERNEL);
+		if (!tmpbuf) {
+			for (i = 0; i < MINIMEM_BENCH_PAGES; i++)
+				__free_page(pages[i]);
+			kfree(pages);
+			kfree(vaddrs);
+			return -ENOMEM;
+		}
+
+		start = ktime_get_ns();
+		for (i = 0; i < MINIMEM_BENCH_PAGES; i++) {
+			src = kmap_local_page(pages[i]);
+			memset(src, i & 0xFF, MINIMEM_PAGE_SIZE);
+			memcpy(tmpbuf, src, MINIMEM_PAGE_SIZE);
+			memcpy(src, tmpbuf, MINIMEM_PAGE_SIZE);
+			kunmap_local(src);
+		}
+		elapsed = ktime_get_ns() - start;
+		kfree(tmpbuf);
+
+		atomic64_set(&bench_baseline_ns, elapsed);
+		atomic64_add(elapsed, &minimem_stats.compress_ns_total);
+		atomic64_add(MINIMEM_BENCH_PAGES, &minimem_stats.compress_count);
+	} else if (strcmp(kbuf, "serial") == 0) {
+		start = ktime_get_ns();
+		for (i = 0; i < MINIMEM_BENCH_PAGES; i++) {
+			void *src = kmap_local_page(pages[i]);
+			memset(src, i & 0xFF, MINIMEM_PAGE_SIZE);
+			kunmap_local(src);
+			get_page(pages[i]);
+
+			ret = minimem_compress_and_store(vaddrs[i], pages[i]);
+			if (ret == MINIMEM_OK) {
+				ret = minimem_decompress_and_restore(
+					vaddrs[i], pages[i]);
+			}
+			put_page(pages[i]);
+		}
+		elapsed = ktime_get_ns() - start;
+
+		atomic64_set(&bench_serial_ns, elapsed);
+		atomic64_add(elapsed, &minimem_stats.decompress_ns_total);
+		atomic64_add(MINIMEM_BENCH_PAGES, &minimem_stats.decompress_count);
+	} else if (strcmp(kbuf, "parallel") == 0) {
+		for (i = 0; i < MINIMEM_BENCH_PAGES; i++) {
+			void *src = kmap_local_page(pages[i]);
+			memset(src, i & 0xFF, MINIMEM_PAGE_SIZE);
+			kunmap_local(src);
+			get_page(pages[i]);
+
+			ret = minimem_compress_and_store(vaddrs[i], pages[i]);
+			put_page(pages[i]);
+			if (ret != MINIMEM_OK && ret != MINIMEM_INCOMPRESSIBLE) {
+				for (int j = i + 1; j < MINIMEM_BENCH_PAGES; j++)
+					__free_page(pages[j]);
+				kfree(pages);
+				kfree(vaddrs);
+				return ret;
+			}
+		}
+
+		start = ktime_get_ns();
+		ret = minimem_parallel_decompress(vaddrs, NULL,
+							  MINIMEM_BENCH_PAGES, NULL);
+		elapsed = ktime_get_ns() - start;
+
+		for (i = 0; i < MINIMEM_BENCH_PAGES; i++)
+			minimem_zswap_remove(vaddrs[i]);
+
+		atomic64_set(&bench_parallel_ns, elapsed);
+		atomic64_add(elapsed, &minimem_stats.decompress_ns_total);
+		atomic64_add(MINIMEM_BENCH_PAGES, &minimem_stats.decompress_count);
+	} else {
+		for (i = 0; i < MINIMEM_BENCH_PAGES; i++)
+			__free_page(pages[i]);
+		kfree(pages);
+		kfree(vaddrs);
+		return -EINVAL;
+	}
+
+	atomic64_set(&bench_pages, MINIMEM_BENCH_PAGES);
+
+	for (i = 0; i < MINIMEM_BENCH_PAGES; i++)
+		__free_page(pages[i]);
+	kfree(pages);
+	kfree(vaddrs);
+
+	return count;
+}
+
+static const struct file_operations bench_fops = {
+	.write = bench_write,
+	.owner = THIS_MODULE,
+};
+
+static ssize_t compress_write(struct file *file, const char __user *buf,
+			      size_t count, loff_t *ppos)
+{
+	unsigned long vaddr;
+	char kbuf[32];
+	int ret;
+	struct page *page;
+
+	if (count > 31)
+		return -EINVAL;
+
+	if (copy_from_user(kbuf, buf, count))
+		return -EFAULT;
+
+	kbuf[count] = '\0';
+	ret = kstrtoul(kbuf, 0, &vaddr);
+	if (ret)
+		return ret;
+
+	vaddr &= PAGE_MASK;
+
+	page = alloc_page(GFP_KERNEL);
+	if (!page)
+		return -ENOMEM;
+
+	{
+		void *addr = kmap_local_page(page);
+		memset(addr, 0x42, MINIMEM_PAGE_SIZE);
+		kunmap_local(addr);
+	}
+
+	get_page(page);
+	ret = minimem_compress_and_store(vaddr, page);
+	put_page(page);
+
+	if (ret == MINIMEM_INCOMPRESSIBLE)
+		__free_page(page);
+	if (ret && ret != MINIMEM_INCOMPRESSIBLE)
+		__free_page(page);
+
+	return count;
+}
+
+static const struct file_operations compress_fops = {
+	.write = compress_write,
+	.owner = THIS_MODULE,
+};
+
+static ssize_t stats_read(struct file *file, char __user *buf,
+			   size_t count, loff_t *ppos)
+{
+	char kbuf[768];
+	int len;
+
+	len = snprintf(kbuf, sizeof(kbuf),
+		       "pages_compressed %lld\n"
+		       "pages_decompressed %lld\n"
+		       "bytes_saved %lld\n"
+		       "compress_count %lld\n"
+		       "decompress_count %lld\n"
+		       "compress_ns_total %lld\n"
+		       "decompress_ns_total %lld\n"
+		       "compress_avg_ns %lld\n"
+		       "decompress_avg_ns %lld\n"
+		       "zswap_pages %lu\n"
+		       "zswap_bytes %lu\n"
+		       "zswap_saved %lu\n"
+		       "parallel_clusters %lld\n"
+		       "parallel_pages %lld\n",
+		       atomic64_read(&minimem_stats.pages_compressed),
+		       atomic64_read(&minimem_stats.pages_decompressed),
+		       atomic64_read(&minimem_stats.bytes_saved),
+		       atomic64_read(&minimem_stats.compress_count),
+		       atomic64_read(&minimem_stats.decompress_count),
+		       atomic64_read(&minimem_stats.compress_ns_total),
+		       atomic64_read(&minimem_stats.decompress_ns_total),
+		       atomic64_read(&minimem_stats.compress_count) ?
+		       atomic64_read(&minimem_stats.compress_ns_total) /
+		       atomic64_read(&minimem_stats.compress_count) : 0,
+		       atomic64_read(&minimem_stats.decompress_count) ?
+		       atomic64_read(&minimem_stats.decompress_ns_total) /
+		       atomic64_read(&minimem_stats.decompress_count) : 0,
+		       minimem_zswap_stored_pages(),
+		       minimem_zswap_total_bytes(),
+		       minimem_zswap_bytes_saved(),
+		       atomic64_read(&minimem_par_stats.clusters_decompressed),
+		       atomic64_read(&minimem_par_stats.pages_decompressed));
+
+	return simple_read_from_buffer(buf, count, ppos, kbuf, len);
+}
+
+static const struct file_operations stats_fops = {
+	.read = stats_read,
+	.owner = THIS_MODULE,
 };
 
 /* ---- Module init/exit ---- */
@@ -176,16 +535,25 @@ static int __init minimem_init(void)
 		return ret;
 	}
 
-	ret = minimem_map_init(&minimem_map);
+	ret = minimem_zswap_init();
 	if (ret) {
-		pr_err("minimem: failed to initialize compression map\n");
+		pr_err("minimem: failed to initialize zswap storage\n");
+		minimem_compress_exit();
+		return ret;
+	}
+
+	ret = minimem_parallel_init();
+	if (ret) {
+		pr_err("minimem: failed to initialize parallel decompression\n");
+		minimem_zswap_exit();
 		minimem_compress_exit();
 		return ret;
 	}
 
 	minimem_kobj = kobject_create_and_add("minimem", kernel_kobj);
 	if (!minimem_kobj) {
-		minimem_map_destroy(&minimem_map);
+		minimem_parallel_exit();
+		minimem_zswap_exit();
 		minimem_compress_exit();
 		return -ENOMEM;
 	}
@@ -193,22 +561,36 @@ static int __init minimem_init(void)
 	ret = sysfs_create_group(minimem_kobj, &minimem_attr_group);
 	if (ret) {
 		kobject_put(minimem_kobj);
-		minimem_map_destroy(&minimem_map);
+		minimem_parallel_exit();
+		minimem_zswap_exit();
 		minimem_compress_exit();
 		return ret;
 	}
 
-	pr_info("minimem: transparent memory compression loaded\n");
+	minimem_debugfs_dir = debugfs_create_dir("minimem", NULL);
+	if (!IS_ERR(minimem_debugfs_dir)) {
+		debugfs_create_file("compress", 0200, minimem_debugfs_dir,
+				    NULL, &compress_fops);
+		debugfs_create_file("bench", 0200, minimem_debugfs_dir,
+				    NULL, &bench_fops);
+		debugfs_create_file("stats", 0444, minimem_debugfs_dir,
+				    NULL, &stats_fops);
+	}
+
+	pr_info("minimem: transparent memory compression loaded (v0.3.0)\n");
+	pr_info("minimem: algorithms: same_page, BDI, WKdm, WKdm-64, block_class, LZ4, delta\n");
+	pr_info("minimem: debugfs at /sys/kernel/debug/minimem/\n");
 	return 0;
 }
 
 static void __exit minimem_exit(void)
 {
+	debugfs_remove_recursive(minimem_debugfs_dir);
 	sysfs_remove_group(minimem_kobj, &minimem_attr_group);
 	kobject_put(minimem_kobj);
 
-	minimem_map_remove_all(&minimem_map);
-	minimem_map_destroy(&minimem_map);
+	minimem_parallel_exit();
+	minimem_zswap_exit();
 	minimem_compress_exit();
 
 	pr_info("minimem: module unloaded - %lld pages compressed, %lld bytes saved\n",

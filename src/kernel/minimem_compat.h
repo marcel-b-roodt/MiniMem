@@ -9,6 +9,10 @@
  *
  * When building the userspace library, this header is not included
  * and the standard libc headers are used normally.
+ *
+ * Note: minimem.h itself is kernel-aware (uses MINIMEM_KERNEL guard).
+ * This header handles the remaining libc includes that algorithm
+ * source files may use directly.
  */
 
 #ifndef MINIMEM_COMPAT_H
@@ -16,59 +20,32 @@
 
 #ifdef MINIMEM_KERNEL
 
-/*
- * Prevent libc headers from being included. The algorithm files
- * include <string.h>, <stddef.h>, <stdint.h>, <stdbool.h>.
- * We define guard macros so their include guards are already set,
- * then provide the kernel equivalents.
+/* Prevent libc headers from being included by algorithm files.
+ * Algorithm files may include <string.h>, <stddef.h>, <stdint.h>,
+ * <stdbool.h>, <stdlib.h> directly. Define their guards so the
+ * compiler skips them (kernel headers already provide equivalents).
  */
+#define _STDBOOL_H
+#define __STDBOOL_H
+#define __bool_true_false_are_defined 1
 
-/* Provide standard integer types from kernel headers */
-#include <linux/types.h>
-typedef u8 uint8_t;
-typedef u16 uint16_t;
-typedef u32 uint32_t;
-typedef u64 uint64_t;
+#define _STDINT_H
+#define __STDINT_H
+#define _STDINT_H__
 
-/* Provide standard bool/type definitions */
-#include <linux/stddef.h>
-#include <linux/kernel.h>
-#include <linux/string.h>
-#include <linux/slab.h>
-#include <linux/bug.h>
-
-#ifndef bool
-#define bool _Bool
-#endif
-#ifndef true
-#define true 1
-#endif
-#ifndef false
-#define false 0
-#endif
-
-/* Prevent libc string.h from being included */
-#define _STRING_H
-#define __STRING_H
-
-/* Prevent libc stddef.h from being included */
 #define _STDDEF_H
 #define __STDDEF_H
 
-/* Prevent libc stdint.h from being included */
-#define _STDINT_H
-#define __STDINT_H
+#define _STRING_H
+#define __STRING_H
 
-/* Prevent libc stdbool.h from being included */
-#define _STDBOOL_H
-#define __STDBOOL_H
+#define _STDLIB_H
+#define __STDLIB_H
 
-/* Map allocation functions */
+/* Map allocation functions to kernel equivalents */
 #define malloc(x) kmalloc(x, GFP_KERNEL)
 #define calloc(n, s) kcalloc(n, s, GFP_KERNEL)
 #define free(x) kfree(x)
-
-/* string functions are provided by <linux/string.h> */
 
 #endif /* MINIMEM_KERNEL */
 

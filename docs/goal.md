@@ -16,6 +16,7 @@ MiniMem targets the gap between existing Linux memory compression (zram/zswap, w
 - A **VRAM compression layer** — reduces GPU memory footprint for AI workloads and games by compressing idle GPU buffers in the driver.
 - A **hardware acceleration framework** — offloads compression to CXL, QAT, FPGA when available, with software fallback.
 - A **specialized compressor toolkit** — domain-optimized algorithms for AI weights, page tables, streaming deltas, and other structured memory content.
+- A **standalone C library (libminimem)** — usable independently by AI frameworks (llama.cpp, vLLM, Ollama), GPU drivers (Mesa/AMDGPU), and self-hosting tools.
 
 ## What MiniMem Is Not
 
@@ -31,13 +32,15 @@ MiniMem targets the gap between existing Linux memory compression (zram/zswap, w
 
 | Target | Metric |
 |---|---|
-| RAM compression | 2x+ effective memory capacity for cold-page-heavy workloads (AI inference, idle server processes) |
+| RAM compression | 2×+ effective memory capacity for cold-page-heavy workloads (AI inference, idle server processes) |
 | Decompression latency | <10 μs per 4KB page on modern x86 (software path) |
-| VRAM compression | 30-50% VRAM savings for AI inference workloads |
+| Parallel decompression | 4.5-7× latency reduction on 32-page clusters vs serial decompression |
+| VRAM compression | 30-50% VRAM savings for AI inference workloads with <5% throughput loss |
 | Transparency | Zero application code changes. Existing binaries run unmodified. |
 | Lossless | Bit-exact round-trip on every page. No data corruption. |
 | Overhead | <5% CPU overhead for active workloads (compression only on cold pages) |
 | Kernel compatibility | Loadable module on latest stable + latest LTS kernel |
+| Standalone usability | libminimem usable without kernel module by any C/C++ project |
 
 ---
 

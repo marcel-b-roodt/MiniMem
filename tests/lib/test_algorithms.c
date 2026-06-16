@@ -19,6 +19,7 @@
 #include "lib/compressors/lz4_wrap.h"
 #include "lib/compressors/delta.h"
 #include "lib/compressors/zstd_dict.h"
+#include "lib/compressors/ai_weights.h"
 #include "lib/test_roundtrip.h"
 #include "lib/bench_harness.h"
 
@@ -371,4 +372,74 @@ Test(algorithms, advisor_best_finds_compression)
         pages[MINIMEM_PAGE_ZERO]->data, pages[MINIMEM_PAGE_ZERO]->size,
         algos, sizeof(algos) / sizeof(algos[0]));
     cr_assert(best >= 0, "Advisor should find a compressible algorithm");
+}
+
+Test(algorithms, ai_fp16_roundtrip_ai_fp16_page)
+{
+    minimem_assert_roundtrip(&minimem_ai_fp16_compressor,
+                             pages[MINIMEM_PAGE_AI_FP16]->data,
+                             pages[MINIMEM_PAGE_AI_FP16]->size);
+}
+
+Test(algorithms, ai_fp16_roundtrip_zero)
+{
+    minimem_assert_roundtrip(&minimem_ai_fp16_compressor,
+                             pages[MINIMEM_PAGE_ZERO]->data,
+                             pages[MINIMEM_PAGE_ZERO]->size);
+}
+
+Test(algorithms, ai_fp16_roundtrip_mixed)
+{
+    minimem_assert_roundtrip(&minimem_ai_fp16_compressor,
+                             pages[MINIMEM_PAGE_MIXED]->data,
+                             pages[MINIMEM_PAGE_MIXED]->size);
+}
+
+Test(algorithms, ai_bf16_roundtrip_ai_fp16_page)
+{
+    minimem_assert_roundtrip(&minimem_ai_bf16_compressor,
+                             pages[MINIMEM_PAGE_AI_FP16]->data,
+                             pages[MINIMEM_PAGE_AI_FP16]->size);
+}
+
+Test(algorithms, ai_bf16_roundtrip_zero)
+{
+    minimem_assert_roundtrip(&minimem_ai_bf16_compressor,
+                             pages[MINIMEM_PAGE_ZERO]->data,
+                             pages[MINIMEM_PAGE_ZERO]->size);
+}
+
+Test(algorithms, ai_int8_roundtrip_ai_int8_page)
+{
+    minimem_assert_roundtrip(&minimem_ai_int8_compressor,
+                             pages[MINIMEM_PAGE_AI_INT8]->data,
+                             pages[MINIMEM_PAGE_AI_INT8]->size);
+}
+
+Test(algorithms, ai_int8_roundtrip_zero)
+{
+    minimem_assert_roundtrip(&minimem_ai_int8_compressor,
+                             pages[MINIMEM_PAGE_ZERO]->data,
+                             pages[MINIMEM_PAGE_ZERO]->size);
+}
+
+Test(algorithms, ai_int8_roundtrip_integer_heavy)
+{
+    minimem_assert_roundtrip(&minimem_ai_int8_compressor,
+                             pages[MINIMEM_PAGE_INTEGER_HEAVY]->data,
+                             pages[MINIMEM_PAGE_INTEGER_HEAVY]->size);
+}
+
+Test(algorithms, ai_no_expansion)
+{
+    const struct minimem_compressor *algos[] = {
+        &minimem_ai_fp16_compressor,
+        &minimem_ai_bf16_compressor,
+        &minimem_ai_int8_compressor,
+    };
+    for (size_t a = 0; a < sizeof(algos) / sizeof(algos[0]); a++) {
+        for (int i = 0; i < MINIMEM_PAGE_TYPE_COUNT; i++) {
+            minimem_assert_no_expansion(algos[a], pages[i]->data, pages[i]->size);
+        }
+    }
 }

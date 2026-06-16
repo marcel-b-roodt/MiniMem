@@ -88,12 +88,25 @@ int minimem_decompress_page(const void *compressed, size_t compressed_len,
 int minimem_classify_page(const void *src, size_t src_len);
 
 /*
- * Get the compression buffer for the current CPU.
- * The buffer is at least MINIMEM_COMPRESS_BUF_SIZE bytes.
- * Caller must not sleep while using this buffer.
+ * Per-CPU buffer access. Call with preemption disabled.
+ * Defined in minimem_compress.c.
  */
-void *minimem_get_compress_buf(void);
-void *minimem_get_decompress_buf(void);
+struct minimem_cpu_buf {
+	void *compress_buf;
+	void *decompress_buf;
+};
+
+DECLARE_PER_CPU(struct minimem_cpu_buf, minimem_cpu_bufs);
+
+static inline void *minimem_get_compress_buf(void)
+{
+	return this_cpu_ptr(&minimem_cpu_bufs)->compress_buf;
+}
+
+static inline void *minimem_get_decompress_buf(void)
+{
+	return this_cpu_ptr(&minimem_cpu_bufs)->decompress_buf;
+}
 
 #define MINIMEM_COMPRESS_BUF_SIZE	(SZ_8K)
 #define MINIMEM_DECOMPRESS_BUF_SIZE	(SZ_8K)

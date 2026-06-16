@@ -1,14 +1,31 @@
-Stage 0 Remaining — Algorithm Library & Benchmarks
+## Immediate — Kernel Module (Stage 1)
 
-- [ ] WKdm ratio improvement — current scalar implementation produces output > input on most page types; need to debug and fix the compression format, or implement a cleaner WKdm from the Wilson et al. spec
-- [ ] LZSSE8 integration — SSE4.1 SIMD decompressor; requires SSE4.1 runtime detection
-- [ ] SIMD paths for LZ4 — SSE2 and AVX2 decompression paths
-- [ ] Zstd dictionary mode — current wrapper uses level-1 compression; add dictionary training for homogeneous pages
-- [ ] Real data benchmarking — collect actual Linux page dumps and AI model weight files; benchmark on real data
-- [ ] WKdm SIMD research — investigate AVX2 gather-based WKdm (research/010)
+- [ ] Install linux618-headers after reboot; compile kernel module (`cd src/kernel && make`)
+- [ ] Test insmod/rmmod on VM; verify sysfs stats
+- [ ] Wire WKdm-64, BDI, LZ4 into minimem_compress.c kernel dispatch
+- [ ] Design swp_entry format for "compressed in RAM" pages
+- [ ] Implement page fault handler (do_swap_page hook → decompress → remap → TLB flush)
+- [ ] Hook PG_idle/PG_young for idle page tracking
+- [ ] Implement compression policy daemon (background workqueue)
 
-Stage 1 — Next Steps
+## Algorithm Library (Stage 0 remaining)
 
-- [ ] Kernel module scaffold — loadable module, sysfs stats, clean rmmod
-- [ ] Page idle tracking — PG_idle/PG_young hook
-- [ ] Compression map — VA → zsmalloc handle
+- [ ] LZSSE8 integration (SSE4.1 SIMD; requires runtime feature detection)
+- [ ] SIMD paths for LZ4 (SSE2/AVX2)
+- [ ] Zstd dictionary mode (add dictionary training for homogeneous pages)
+- [ ] Real data benchmarks (collect actual page dumps + safetensor weights)
+- [ ] DSC-Lite lossless predictor (MMAP + ICH; research/015)
+
+## Library Packaging (Milestone 2)
+
+- [ ] Create libminimem.so/.a build target in meson.build
+- [ ] Stable API header with versioning
+- [ ] pkg-config and CMake find module
+- [ ] Example programs (compress file, compress buffer)
+
+## VRAM Prototype (Milestone 3)
+
+- [ ] CUDA userspace program: load LLM weights, compress cold tensors with libminimem
+- [ ] Tiered VRAM management (hot/warm/cold/frozen)
+- [ ] MoE sparse activation: use router to determine hot experts
+- [ ] Benchmark on Mixtral 8x7B or comparable MoE model

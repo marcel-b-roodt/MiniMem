@@ -1,6 +1,6 @@
 # MiniMem — VRAM Compression
 
-Deep dive into transparent GPU memory compression. See [research/006-nvcomp-gpu-compression.md](research/006-nvcomp-gpu-compression.md) and [research/008-ai-workload-compression.md](research/008-ai-workload-compression.md) for supporting research.
+Deep dive into transparent GPU memory compression. See [research/006](research/006-nvcomp-gpu-compression.md), [research/008](research/008-ai-workload-compression.md), [research/014](research/014-linux-kernel-vram-architecture.md), [research/015](research/015-display-stream-compression-dsc.md), [research/016](research/016-parallel-decompression-swarming.md), and [research/017](research/017-sparse-activation-brain-inspired-recall.md) for supporting research.
 
 ---
 
@@ -46,6 +46,8 @@ Current GPU drivers do **no transparent compression** of VRAM contents. Textures
 **Verdict:** Investigate. This is the ideal architecture but depends on driver cooperation. Start with a userspace prototype using CUDA/Vulkan, then evaluate kernel driver integration.
 
 **Open questions:** Which driver hooks are available? AMDGPU and Mesa are open-source — can we add compression hooks there? NVIDIA requires closed-source driver cooperation.
+
+**Update (from research 014):** The Linux kernel's mm/ subsystem has **zero visibility** into discrete GPU VRAM. All VRAM management is inside the DRM/TTM driver stack. The primary insertion point is `amdgpu_vram_mgr` (TTM resource manager for VRAM). CXL Type-3 memory, by contrast, IS fully visible to mm/ and can be compressed by MiniMem's existing kernel module. See [research/014](research/014-linux-kernel-vram-architecture.md) for full analysis.
 
 ---
 
@@ -188,3 +190,81 @@ Weight tensor
 3. **AI-specific compressor**: Implement block classification + sparse/delta/RLE pipeline
 4. **Driver integration**: Evaluate AMDGPU/Mesa hooks for transparent buffer compression
 5. **Production**: Ship as a PyTorch plugin, then evaluate kernel-level integration
+
+---
+
+## VRAM Access Architecture (from research/014)
+
+The Linux kernel's `mm/` subsystem has **zero visibility** into discrete GPU VRAM. All VRAM management is inside the DRM/TTM driver stack:
+
+| Access Path | mm/ Visibility | Compression Feasibility |
+|---|---|---|
+| Discrete GPU VRAM | None | Requires TTM/driver hooks |
+| AMD APU UMA carveout | None (BIOS reserved) | Requires amdgpu_vram_mgr hooks |
+| AMD APU GTT domain | Full (normal struct page) | **Works today** with MiniMem Stage 1 |
+| Intel i915 buffers | Full (system RAM only) | **Works today** with MiniMem Stage 1 |
+| CXL Type-3 memory | Full (NUMA node) | **Works today** with MiniMem Stage 1 |
+
+**Primary insertion point for discrete VRAM:** `amdgpu_vram_mgr` (TTM resource manager). Add compression as an alternative to eviction-to-system-RAM.
+
+**CXL Type-3:** Fully visible to `mm/` via `dax_kmem`. MiniMem's kernel module compresses CXL pages with zero changes.
+
+---
+
+## Display Stream Compression — What We Can Borrow (from research/015)
+
+DSC is **lossy** (visually lossless only) — cannot be used directly. DSC hardware is display-path only. However, DSC's *prediction and entropy coding* techniques are borrowable:
+
+| DSC Technique | MiniMem Adaptation |
+|---|---|
+| MMAP prediction (JPEG-LS median) | Lossless predictor for 32/64-bit words on structured pages |
+| ICH (Indexed Color History, 32 entries) | Dictionary of recent word values (expand to 64-256 entries for memory pages) |
+| DSU-VLC entropy coding | Lossless residual encoding |
+| Slice-based parallel encoding | Sub-page blocks for parallel decompression |
+| Rate control / quantization | **Remove entirely** (this is the lossy part) |
+
+**Novel idea:** "DSC-Lite" — MMAP + ICH for 32/64-bit words, no quantization, no rate control. Estimated 1.5-2.5:1 on structured pages. Needs implementation and benchmarking.
+
+---
+
+## Sparse Activation & Tiered VRAM Strategy (from research/017)
+
+MoE models have 70-90% of weights cold at any given time. Layer-sequential access in dense models enables perfect prefetching. No existing offloading system uses compression.
+
+**Tiered VRAM strategy:**
+
+| Tier | Location | Content | Latency |
+|---|---|---|---|
+| Hot | VRAM, uncompressed | Active expert(s) + current layer + KV cache | 0 (immediate) |
+| Warm | VRAM, compressed | Recently-used experts, prefetched layers | ~5μs (GPU decompress) |
+| Cold | RAM, compressed | Inactive experts, previous layers | ~15-35μs (PCIe + decompress) |
+| Frozen | NVMe, compressed | Rarely-used experts, model backup | ~100μs+ (SSD I/O + decompress) |
+
+**Transition rules:** Expert not used for K tokens → demote one tier. Expert needed by router → promote to hot (decompress). K should be tuned per model and workload.
+
+**Compression algorithm per tier:**
+
+| Tier | Best Algorithm | Why |
+|---|---|---|
+| Hot | None (uncompressed) | Zero-latency access |
+| Warm | ai_fp16 (BYTE_STREAM_SPLIT) or LZ4 | Fast decompress (~5μs), decent ratio |
+| Cold | Zstd dict | Best ratio (2.12:1 on FP16), acceptable decompress (~7.75μs) |
+| Frozen | Zstd max | Best ratio, latency irrelevant (I/O dominates) |
+
+---
+
+## Parallel Decompression (from research/016)
+
+When swap readahead brings in a 32-page cluster, MiniMem can decompress all pages in parallel:
+
+| Method | 32-page cluster latency | Speedup vs serial |
+|---|---|---|
+| Serial (current Linux) | 64-160 μs | 1× |
+| 8-way parallel (CPU workqueue) | 10-22 μs | 4.5-7× |
+| GPU nvCOMP batch | 15-25 μs | 4-8× (VRAM only) |
+
+**Safety model:** RCU for map lookups, atomic refcounts for buffer lifetime, `PG_locked` for page handoff, `mmu_gather` for batched PTE updates. All kernel-standard primitives.
+
+**VRAM parallel decompression:** Use nvCOMP `BatchedDecompressAsync()` for VRAM-resident compressed buffers. Zero CPU involvement — all on GPU.
+
+**GPU decompression is NOT viable for CPU page faults** (PCIe round-trip 15-35μs exceeds CPU decompress time 2-5μs). Only viable for data already on GPU.

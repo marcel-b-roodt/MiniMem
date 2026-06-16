@@ -2,115 +2,121 @@
 
 Target: **Transparent, lossless memory compression for Linux RAM, GPU VRAM, and hardware-accelerated paths.**
 
+See [action-plan.md](action-plan.md) for the detailed delivery plan with milestones and timeline.
+
 Stages are ordered by dependency. Each stage produces components consumed by later stages. The algorithm library (Stage 0) is the foundation — everything else depends on it.
 
 ---
 
-## Stage 0 — Algorithm Library & Benchmarks
+## Stage 0 — Algorithm Library & Benchmarks ✅ Complete
 
-The compression algorithms and benchmarking infrastructure that all later stages depend on.
-
-| Item | Description |
-|---|---|
-| Benchmark framework | Criterion-based harness with page-dump and tensor-dump data loaders |
-| LZ4 | Reference C implementation + SIMD paths. Industry standard for speed. |
-| LZSSE8 | SSE4.1 SIMD-optimized LZ77. Fastest software decompression (~4.7 GB/s). x86-64 only. |
-| WKdm | Word-oriented memory-page compressor (Wilson et al. 1999). Exploits pointer/integer structure in memory pages. |
-| BDI | Base-Delta-Immediate cache-line compressor (Pekhimenko et al. 2012). 1-2 cycle decode in hardware, trivial in software. |
-| Zstd (dictionary) | Dictionary-trained mode for homogeneous page content (kernel pages, weight blocks). Best ratio among fast algorithms. |
-| Delta encoding | XOR delta between similar pages. Near-zero decode cost for fork-COW and incremental pages. |
-| Same-page detection | Zero-fill and repeated-value pages identified with zero memory allocation (just a flag). |
-| Comparison suite | All algorithms benchmarked on: random pages, zero-heavy, pointer-heavy, AI weight tensors |
+| Feature | Status | Notes |
+|---|---|---|
+| Benchmark framework | ✅ Complete | Criterion harness; 11 synthetic page types; JSON/CSV output |
+| LZ4 | ✅ Complete | v1.10.0 vendored; roundtrip tests; 2.5μs decompress (O2) |
+| LZSSE8 | 📋 Planned | SSE4.1 SIMD; fastest software decompress |
+| WKdm | ✅ Complete | 32-bit word-oriented; 2.08:1 on pointer-heavy |
+| WKdm-64 | ✅ Complete | 64-bit variant; 29:1 on zero; 2× faster decompress |
+| BDI | ✅ Complete | Base-Delta-Immediate; 60:1 on zero; 0.17μs decompress |
+| Zstd (dict) | ✅ Complete | Level 1; 4.64:1 on PTE; best ratio, slowest decompress |
+| Delta XOR | ✅ Complete | XOR delta/recovery primitives; roundtrip verified |
+| Same-page | ✅ Complete | 819:1 on zero; 0.07μs decompress |
+| Block classifier | ✅ Complete | 5-type classification; 3-bit packed headers; 146:1 on zero |
+| AI-FP16/BF16 | ✅ Complete | BYTE_STREAM_SPLIT; 1.96:1 on FP16; 5.2μs decompress |
+| AI-INT8 | ✅ Complete | Row-delta XOR; 44.5:1 on uniform INT8; 1.6μs decompress |
+| Advisor | ✅ Complete | Heuristic decision tree; best-algorithm selector |
+| Real data benchmarks | 📋 Planned | Need actual page dumps and safetensor weights |
 
 ---
 
-## Stage 1 — Linux Kernel In-Memory Compression Module
+## Stage 1 — Linux Kernel In-Memory Compression Module 🔧 In Progress
 
 The core deliverable: transparent compression of cold pages in a running Linux system.
 
-| Item | Description |
-|---|---|
-| Module scaffold | Loadable kernel module, sysfs stats, clean rmmod |
-| Page idle tracking | Hook into PG_idle/PG_young or soft-dirty bits to identify cold pages |
-| Compression map | Virtual-address → compressed-handle lookup structure (zsmalloc-backed) |
-| PTE marking | Custom swp_entry for "compressed in RAM" pages (analogous to swap entries) |
-| Page fault handler | Intercept compressed-page faults → decompress → remap → TLB flush → resume |
-| Compression policy | Thresholds: idle time, access frequency, minimum savings ratio |
-| Multi-algorithm dispatch | Hot-path LZ4 (fast), cold-page recompression with zstd (dense) |
-| Concurrency | RCU-safe lookups, per-CPU buffers, no global locks on hot paths |
-| kselftest | Load/unload, round-trip, stress, stats validation |
-| Compatibility | Compiles against latest stable + latest LTS |
-
-**Feeds into:** Stage 2 (compression map pattern reused for VRAM), Stage 3 (HW accel offload for compression/decompression), Stage 4 (specialized algorithms plugged into multi-algorithm dispatch)
-
----
-
-## Stage 2 — VRAM Transparent Compression
-
-Apply compression to GPU memory, reducing VRAM usage for AI and games.
-
-| Item | Description |
-|---|---|
-| VRAM buffer tracking | Track allocated GPU buffers, classify by type (weights, activations, textures, framebuffers) |
-| VRAM compression map | GPU-side structure mapping buffer ID → compressed region |
-| Decompression on access | Hook into GPU page faults or command-stream barriers |
-| AI workload compressor | Specialized algorithm for quantized weight tensors (from Stage 4) |
-| nvCOMP integration | Evaluate NVIDIA's GPU-parallel LZ4/zstd for bulk compression |
-| Driver integration points | AMDGPU, Mesa, Vulkan memory allocator hooks |
-| Userspace API | ioctl/sysfs for compression policy advice from applications |
-| VRAM test harness | Mock VRAM buffers for correctness, real GPU for throughput |
-
-**Depends on:** Stage 0 (algorithms), Stage 1 (compression map pattern, policy framework)
-**Feeds into:** Stage 4 (AI workload data shapes VRAM compressor design)
+| Feature | Status | Notes |
+|---|---|---|
+| Module scaffold | ✅ Complete | Loadable module, sysfs stats (14 attributes), debugfs test interface |
+| Compression map | ✅ Complete | xarray + kmem_cache; RCU-safe lookups |
+| Zsmalloc storage | ✅ Complete | zsmalloc pool for compressed page data; 6.x kernel API (zs_obj_write/read) |
+| Compression dispatch | ✅ Complete | Per-CPU buffers; 7 algorithms (same_page, BDI, WKdm, WKdm-64, block_class, LZ4, delta) |
+| Parallel cluster decompression | ✅ Complete | Workqueue (minimem_dec); atomic completion; 32-page cluster support |
+| Debugfs benchmark | ✅ Complete | baseline/serial/parallel modes via /sys/kernel/debug/minimem/bench |
+| Compile and load module | ✅ Complete | minimem.ko for 6.18.33-1-MANJARO; depends on lz4_compress |
+| PTE marking | 📋 Planned | All 32 SWP_TYPE slots consumed; need kernel patch or zswap-like approach |
+| Page fault handler | 📋 Planned | Intercept → decompress → remap → TLB flush |
+| Idle page tracking | 📋 Planned | PG_idle/PG_young or soft-dirty bits |
+| Compression policy | 📋 Planned | Idle time threshold, min savings ratio, background daemon |
+| kselftest | 📋 Planned | Load/unload, round-trip, stress, stats |
 
 ---
 
-## Stage 3 — Hardware Acceleration
+## Stage 2 — VRAM Transparent Compression 📋 Planned
+
+Apply compression to GPU memory, reducing VRAM usage for AI inference and games.
+
+| Feature | Status | Notes |
+|---|---|---|
+| Userspace VRAM prototype | 📋 Planned | CUDA/Vulkan program: compress idle weight tensors with libminimem |
+| Tiered VRAM management | 📋 Planned | Hot (uncompressed) → Warm (compressed VRAM) → Cold (compressed RAM) → Frozen (compressed NVMe) |
+| MoE sparse activation map | 📋 Planned | Use router output to determine which expert blocks to keep hot |
+| AI weight compressor (VRAM) | 📋 Planned | BYTE_STREAM_SPLIT + Zstd for tiered compression; fast decompress for warm tier |
+| nvCOMP integration | 📋 Planned | GPU-parallel batch decompression for VRAM-resident data |
+| TTM driver hook | 📋 Planned | Prototype patch against amdgpu_vram_mgr |
+| Vulkan memory allocator extension | 📋 Planned | VK_EXT_memory_compression proposal |
+| llama.cpp integration | 📋 Planned | Custom allocator plugin using libminimem |
+| VRAM benchmarks | 📋 Planned | Real LLM inference: VRAM savings, latency impact, throughput |
+
+**Key research findings (research/014, /017):**
+- mm/ has zero VRAM visibility; TTM manages VRAM entirely
+- CXL Type-3 memory IS visible to mm/ — works today
+- MoE models have 70-90% cold weights — massive compression opportunity
+- No existing offloading system uses compression
+
+---
+
+## Stage 3 — Hardware Acceleration 📋 Planned
 
 Offload compression to specialized hardware when available.
 
-| Item | Description |
-|---|---|
-| Intel QAT LZ4 | Offload bulk page compression to QAT hardware on Xeon platforms |
-| CXL inline compression | Evaluate Marvell Structera-style inline compression for CXL memory |
-| IBM NX-842 | PowerPC hardware compression where available |
-| SIMD dispatch | Runtime CPUID-based selection of AVX2/AVX-512/NEON decompression paths |
-| FPGA evaluation | Assess Xilinx Vitis LZ4/DEFLATE for line-rate compression |
-| HW detection | Graceful detection and fallback to software when HW absent |
-| Benchmark: HW vs SW | Throughput and latency comparison for each backend |
+| Feature | Status | Notes |
+|---|---|---|
+| Intel QAT LZ4 | 📋 Planned | Bulk page compression offload; wins on throughput, not latency |
+| CXL inline compression | 📋 Planned | CXL Type-3 works with Stage 1 module directly; no CXL compression standard exists yet |
+| SIMD runtime dispatch | 📋 Planned | AVX2/AVX-512/NEON for LZ4, WKdm, BDI hot paths |
+| FPGA evaluation | 📋 Planned | Xilinx Vitis LZ4/DEFLATE assessment |
+| IBM NX-842 | 📋 Planned | PowerPC hardware compression |
+| HW detection + fallback | 📋 Planned | Graceful fallback to software |
 
-**Depends on:** Stage 0 (algorithms with HW-accelerated variants), Stage 1 (kernel module for integration points)
+**Key finding (research/016):** QAT wins on throughput (~12.5 GB/s) but per-request latency (10-20μs) exceeds CPU decompress (2-5μs). Only suitable for bulk background compression, not page fault path.
 
 ---
 
-## Stage 4 — Specialized Compressors
+## Stage 4 — Specialized Compressors 🔧 In Progress
 
-Domain-optimized algorithms that achieve higher compression or speed than general-purpose approaches on specific memory content types.
+Domain-optimized algorithms achieving higher compression or speed than general-purpose approaches.
 
-| Item | Description |
-|---|---|
-| AI weight compressor | Exploit quantization patterns, sparse structure, repeated blocks in model weights |
-| Page-table-aware compressor | Exploit pointer alignment, upper-byte zeros in 64-bit entries |
-| Delta-streaming compressor | XOR deltas between similar pages (fork COW, consecutive weight rows) |
-| Dictionary compressor | Pre-trained dictionaries for homogeneous workloads (kernel pages, AI weight blocks) |
-| Compression advisor | Runtime page content classifier → automatic algorithm selection |
-| Domain benchmarks | AI model weights (LLM layers), page tables, fork-COW pages |
-
-**Depends on:** Stage 0 (all algorithms available), Stage 1 (kernel module for deployment), Stage 2 (VRAM layer for AI compressor deployment)
-**Feeds back into:** Stage 1 (better algorithms for kernel module), Stage 2 (AI compressor for VRAM)
+| Feature | Status | Notes |
+|---|---|---|
+| AI weight compressor | ✅ Complete | BYTE_STREAM_SPLIT (FP16/BF16) + row-delta XOR (INT8); all <10μs decompress |
+| Page-table-aware | 📋 Planned | Exploit PTE structure; delta-encode PFNs; expected 4-10:1 |
+| Delta-streaming | 📋 Planned | XOR deltas for COW/incremental pages |
+| Dictionary (pre-trained) | 📋 Planned | Zstd dictionary for homogeneous workloads |
+| DSC-Lite predictor | 📋 Planned | MMAP + ICH for 32/64-bit words; estimated 1.5-2.5:1 on structured pages |
+| Compression advisor | ✅ Complete | Heuristic decision tree; picks best algorithm per page |
+| Domain benchmarks | 📋 Planned | Real LLM weights, page tables, fork-COW pages |
 
 ---
 
 ## Cross-stage dependencies
 
 ```
-Stage 0 (Algorithms)
-  ├──→ Stage 1 (Kernel module) ──→ Stage 2 (VRAM)
-  │         │                           │
-  │         ├──→ Stage 3 (HW accel)     │
-  │         │                           │
-  └─────────┴──→ Stage 4 (Specialized) ─┘
-                    ↑ feeds back into 1 and 2
+Stage 0 (Algorithms) ✅
+  ├──→ Stage 1 (Kernel module) 🔧 ──→ Stage 2 (VRAM) 📋
+  │         │                                │
+  │         ├──→ Stage 3 (HW accel) 📋       │
+  │         │                                │
+  └─────────┴──→ Stage 4 (Specialized) 🔧 ──┘
+                     ↑ feeds back into 1 and 2
 ```
 
-Stage 0 is the foundation. Stages 1-3 can progress in parallel once Stage 0 is solid. Stage 4 feeds back into Stages 1 and 2, improving their algorithms over time.
+Stage 0 is complete. Stage 1 is in progress (kernel module scaffold exists, needs PTE/fault/policy work). Stage 2 can start prototyping in userspace as soon as the standalone library is packaged. Stage 4 feeds improved algorithms back into Stages 1 and 2.

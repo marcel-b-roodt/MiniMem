@@ -22,7 +22,9 @@ struct minimem_page_stats minimem_analyze_page(const uint8_t *data, size_t len);
 
 int minimem_advise_algorithm(const struct minimem_page_stats *stats);
 
+#ifndef MINIMEM_KERNEL
 int minimem_advise_best(const uint8_t *data, size_t len,
                         const int *algo_ids, size_t n_algos);
+#endif
 
 #endif

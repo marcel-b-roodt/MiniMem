@@ -19,14 +19,31 @@
 
 #include "minimem_compress.h"
 
+/* Forward declarations for algorithm functions compiled into this module */
+extern size_t minimem_bdi_compress(const uint8_t *src, size_t src_len,
+				   uint8_t *dst, size_t dst_cap);
+extern size_t minimem_bdi_decompress(const uint8_t *src, size_t src_len,
+				     uint8_t *dst, size_t dst_cap);
+extern size_t minimem_wkdm_compress(const uint8_t *src, size_t src_len,
+				     uint8_t *dst, size_t dst_cap);
+extern size_t minimem_wkdm_decompress(const uint8_t *src, size_t src_len,
+				       uint8_t *dst, size_t dst_cap);
+extern size_t minimem_wkdm64_compress(const uint8_t *src, size_t src_len,
+				       uint8_t *dst, size_t dst_cap);
+extern size_t minimem_wkdm64_decompress(const uint8_t *src, size_t src_len,
+					 uint8_t *dst, size_t dst_cap);
+extern size_t minimem_block_class_compress(const uint8_t *src, size_t src_len,
+					    uint8_t *dst, size_t dst_cap);
+extern size_t minimem_block_class_decompress(const uint8_t *src, size_t src_len,
+					     uint8_t *dst, size_t dst_cap);
+extern size_t minimem_lz4_compress(const uint8_t *src, size_t src_len,
+				     uint8_t *dst, size_t dst_cap);
+extern size_t minimem_lz4_decompress(const uint8_t *src, size_t src_len,
+				       uint8_t *dst, size_t dst_cap);
+
 /* ---- Per-CPU buffers ---- */
 
-struct minimem_cpu_buf {
-	void *compress_buf;
-	void *decompress_buf;
-};
-
-static DEFINE_PER_CPU(struct minimem_cpu_buf, minimem_cpu_bufs);
+DEFINE_PER_CPU(struct minimem_cpu_buf, minimem_cpu_bufs);
 
 /* ---- Kernel-compatible algorithm wrappers ---- */
 
@@ -40,7 +57,7 @@ static DEFINE_PER_CPU(struct minimem_cpu_buf, minimem_cpu_bufs);
  * The kernel module object links with the compiled algorithm objects.
  */
 
-/* Same-page detection */
+/* Same-page detection — inlined for speed */
 static size_t km_same_page_compress(const void *src, size_t src_len,
 				    void *dst, size_t dst_cap)
 {
@@ -51,7 +68,6 @@ static size_t km_same_page_compress(const void *src, size_t src_len,
 	if (src_len == 0)
 		return 0;
 
-	/* Check if all bytes are the same */
 	for (i = 1; i < src_len; i++) {
 		if (s[i] != s[0])
 			return 0;
@@ -183,13 +199,22 @@ int minimem_compress_page(const void *src, size_t src_len,
 	case MINIMEM_ALGO_SAME_PAGE:
 		csz = km_same_page_compress(src, src_len, buf, bound);
 		break;
+	case MINIMEM_ALGO_BDI:
+		csz = minimem_bdi_compress(src, src_len, buf, bound);
+		break;
+	case MINIMEM_ALGO_WKDM:
+		csz = minimem_wkdm_compress(src, src_len, buf, bound);
+		break;
+	case MINIMEM_ALGO_WKDM64:
+		csz = minimem_wkdm64_compress(src, src_len, buf, bound);
+		break;
+	case MINIMEM_ALGO_BLOCK_CLASS:
+		csz = minimem_block_class_compress(src, src_len, buf, bound);
+		break;
+	case MINIMEM_ALGO_LZ4:
+		csz = minimem_lz4_compress(src, src_len, buf, bound);
+		break;
 	default:
-		/*
-		 * For algorithms that are not yet linked into the kernel
-		 * module, fall back to same-page check. Once the algorithm
-		 * objects are compiled for kernel context, the real
-		 * functions will be called here.
-		 */
 		csz = 0;
 		break;
 	}
@@ -222,7 +247,27 @@ int minimem_decompress_page(const void *compressed, size_t compressed_len,
 	switch (algo_id) {
 	case MINIMEM_ALGO_SAME_PAGE:
 		dsz = km_same_page_decompress(compressed, compressed_len,
+					      dst, dst_len);
+		break;
+	case MINIMEM_ALGO_BDI:
+		dsz = minimem_bdi_decompress(compressed, compressed_len,
+					      dst, dst_len);
+		break;
+	case MINIMEM_ALGO_WKDM:
+		dsz = minimem_wkdm_decompress(compressed, compressed_len,
 					       dst, dst_len);
+		break;
+	case MINIMEM_ALGO_WKDM64:
+		dsz = minimem_wkdm64_decompress(compressed, compressed_len,
+					        dst, dst_len);
+		break;
+	case MINIMEM_ALGO_BLOCK_CLASS:
+		dsz = minimem_block_class_decompress(compressed, compressed_len,
+						     dst, dst_len);
+		break;
+	case MINIMEM_ALGO_LZ4:
+		dsz = minimem_lz4_decompress(compressed, compressed_len,
+					     dst, dst_len);
 		break;
 	default:
 		return MINIMEM_ERROR;
@@ -240,16 +285,6 @@ int minimem_decompress_page(const void *compressed, size_t compressed_len,
 int minimem_classify_page(const void *src, size_t src_len)
 {
 	return km_classify_page(src, src_len);
-}
-
-void *minimem_get_compress_buf(void)
-{
-	return this_cpu_ptr(&minimem_cpu_bufs)->compress_buf;
-}
-
-void *minimem_get_decompress_buf(void)
-{
-	return this_cpu_ptr(&minimem_cpu_bufs)->decompress_buf;
 }
 
 int minimem_compress_init(void)

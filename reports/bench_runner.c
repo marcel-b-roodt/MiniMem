@@ -7,6 +7,7 @@
 #include "lib/compressors/block_class.h"
 #include "lib/compressors/lz4_wrap.h"
 #include "lib/compressors/zstd_dict.h"
+#include "lib/compressors/ai_weights.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +22,9 @@ static const struct minimem_compressor *algos[] = {
     &minimem_block_class_compressor,
     &minimem_lz4_compressor,
     &minimem_zstd_dict_compressor,
+    &minimem_ai_fp16_compressor,
+    &minimem_ai_bf16_compressor,
+    &minimem_ai_int8_compressor,
 };
 
 static const char *algo_names[] = {
@@ -31,6 +35,9 @@ static const char *algo_names[] = {
     "block_class",
     "lz4",
     "zstd_dict",
+    "ai_fp16",
+    "ai_bf16",
+    "ai_int8",
 };
 
 #define NUM_ALGOS (sizeof(algos) / sizeof(algos[0]))

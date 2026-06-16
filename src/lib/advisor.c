@@ -1,6 +1,14 @@
 #include "lib/advisor.h"
+
+#ifdef MINIMEM_KERNEL
+#include <linux/slab.h>
+#include <linux/string.h>
+#define malloc(x) kmalloc(x, GFP_KERNEL)
+#define free(x) kfree(x)
+#else
 #include <stdlib.h>
 #include <string.h>
+#endif
 
 struct minimem_page_stats minimem_analyze_page(const uint8_t *data, size_t len)
 {
@@ -83,6 +91,7 @@ int minimem_advise_algorithm(const struct minimem_page_stats *stats)
     return MINIMEM_ALGO_LZ4;
 }
 
+#ifndef MINIMEM_KERNEL
 int minimem_advise_best(const uint8_t *data, size_t len,
                         const int *algo_ids, size_t n_algos)
 {
@@ -114,3 +123,4 @@ int minimem_advise_best(const uint8_t *data, size_t len,
 
     return advised;
 }
+#endif

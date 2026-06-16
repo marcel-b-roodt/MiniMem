@@ -26,6 +26,11 @@ Numbered research documents capturing findings from papers, experiments, and inv
 | [010](010-simd-wkdm-feasibility.md) | SIMD-WKdm Feasibility | No known SIMD WKdm exists; AVX2 gather could enable 4-6x speedup; potential novel contribution |
 | [011](011-block-classification-weights.md) | Block Classification for AI Weights | Per-block classification (zero/sparse/uniform/small-range/dense) achieves 3-8x on quantized weights; highest-impact novel contribution |
 | [012](012-compression-advisor-thresholds.md) | Compression Advisor Thresholds | Decision tree classifier for per-page algorithm selection; <0.5 μs budget; calibrated from benchmark data |
+| [013](013-specialized-algorithm-inspiration.md) | Specialized Algorithm Inspiration | Parquet BYTE_STREAM_SPLIT, nvCOMP Cascaded, SIMD-BP128, row-delta prediction for AI weights |
+| [014](014-linux-kernel-vram-architecture.md) | Linux Kernel–VRAM Boundary | mm/ has zero VRAM visibility; TTM manages VRAM entirely; CXL Type-3 IS visible to mm/; no existing VRAM compression patches |
+| [015](015-display-stream-compression-dsc.md) | Display Stream Compression (DSC) | DSC is lossy (visually lossless only); hardware is display-path only; MMAP prediction + ICH techniques borrowable for lossless memory compression; no CXL/PCIe compression standard exists |
+| [016](016-parallel-decompression-swarming.md) | Parallel Decompression Swarming | 4.5–7× latency reduction via parallel cluster decompression; swap readahead provides clustering; RCU + atomic refs for safety; GPU viable for VRAM only (not CPU faults); mmu_gather for batched TLB flush |
+| [017](017-sparse-activation-brain-inspired-recall.md) | Sparse Activation & Brain-Inspired Recall | MoE models have 70-90% cold weights; layer-sequential access enables perfect prefetching; tiered VRAM/RAM/NVMe strategy; no existing offloading system uses compression |
 
 ---
 

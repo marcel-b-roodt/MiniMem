@@ -1,6 +1,8 @@
 # MiniMem — Specialized Compression
 
-Second-layer investigation: what can we learn from other domains (data streaming, columnar databases, signal processing) to build compression systems optimized for our specific targets (memory pages, AI workloads, VRAM)?
+Second-layer investigation: what can we learn from other domains (data streaming, columnar databases, signal processing, display compression, brain-inspired memory) to build compression systems optimized for our specific targets (memory pages, AI workloads, VRAM)?
+
+See [research/015](research/015-display-stream-compression-dsc.md) for DSC analysis and [research/017](research/017-sparse-activation-brain-inspired-recall.md) for sparse activation research.
 
 ---
 
@@ -193,5 +195,44 @@ Sparse matrices store non-zero values plus their indices, skipping zeros entirel
 | AI weight | High (no lossless AI-specific compressor exists) | Very high (VRAM savings for LLM inference) | Very high |
 | Delta-streaming | Low (delta encoding is well-known) | Medium (fork COW) | Medium |
 | Compression advisor | High (no adaptive per-page selector in Linux) | Very high (improves all workloads) | Very high |
+| DSC-Lite predictor | High (novel lossless adaptation of DSC techniques) | High (structured pages, potentially better than WKdm) | Medium |
+| Sparse activation map | High (novel compression-aware memory tiering) | Very high (3-10× VRAM savings for MoE) | High |
 
-The **AI weight compressor** and **compression advisor** are the most novel and impactful contributions. Both would require benchmarking on real workloads to validate.
+The **AI weight compressor** and **compression advisor** are the most novel and impactful contributions. The **sparse activation map** (tiered VRAM with compression) is the biggest architectural opportunity for VRAM compression. The **DSC-Lite predictor** is a promising research direction that needs implementation to validate.
+
+---
+
+## New: DSC-Inspired Lossless Predictor (from research/015)
+
+DSC (Display Stream Compression) is lossy but its prediction techniques are borrowable for lossless use:
+
+**Architecture:**
+1. MMAP-like median predictor on 32/64-bit words (predict from left/above neighbors)
+2. ICH-like dictionary of 32-64 recent word values (for repeated patterns)
+3. DSU-VLC or simple variable-length encoding of prediction residuals
+4. No quantization, no rate control — pure lossless
+5. Per-sector independent decoding for parallel decompression
+
+**Target pages:** Stack/heap (pointers, sequential integers), AI weights (low-variance blocks), page tables (hierarchical patterns). Estimated 1.5-2.5:1 on structured pages.
+
+**Comparison with WKdm:** WKdm uses dictionary-based word classification (exact match, partial match, miss). DSC-Lite adds neighborhood prediction (median of neighbors) which may capture sequential patterns better than WKdm's dictionary approach. Needs benchmarking.
+
+---
+
+## New: Sparse Activation Architecture (from research/017)
+
+MoE models provide a natural "sparse activation map" — the router determines which expert weight blocks are needed per token. This enables compression-aware VRAM tiering:
+
+**Tiering pipeline:**
+```
+Input token → Router → Expert IDs → Check VRAM tier
+                                         |
+                                         +-- Hot (VRAM, uncompressed): use directly
+                                         +-- Warm (VRAM, compressed): GPU decompress (~5μs)
+                                         +-- Cold (RAM, compressed): PCIe transfer + CPU decompress (~15-35μs)
+                                         +-- Frozen (NVMe, compressed): SSD I/O + decompress (~100μs+)
+```
+
+**Key insight:** No existing weight offloading system (DeepSpeed ZeRO, FlexGen, llama.cpp) uses compression. They all transfer raw data between tiers. Compressing cold weights reduces both transfer time and memory footprint.
+
+**For dense models:** Use layer-sequential prefetching instead of expert routing. While computing layer N, decompress layer N+1 from warm tier. This eliminates the "chicken-and-egg" prediction problem.

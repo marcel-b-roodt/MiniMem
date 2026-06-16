@@ -1,45 +1,33 @@
 ## Transparent in-memory compression for Linux (the "macOS gap")
-Design intent: implement a Linux equivalent of macOS's in-memory compression
-that compresses cold pages while they remain in the process address space.
-macOS has had this since Mavericks (2013) using WKdm. Linux has zram and zswap
-but they only compress pages that are already being evicted to swap. Nobody
-compresses pages that are still mapped. The kernel infrastructure exists:
-PG_idle/PG_young for idle tracking, zsmalloc for compressed storage, page
-fault handlers for decompression. The main work is: PTE marking scheme for
-"compressed in RAM" pages, compression policy, and the compression map data
-structure. Source into TODO.md Stage 1 once algorithm library is benchmarked.
+→ Sourced into docs/action-plan.md (Milestone 1) and docs/roadmap.md (Stage 1).
+→ Kernel module scaffold exists. Remaining: PTE marking, page fault handler, idle tracking, policy, parallel decompression.
 
 ## VRAM compression for AI workloads
-Design intent: LLM inference loads large weight tensors into VRAM. These are
-highly compressible (quantized values with patterns, sparse blocks). No
-current GPU driver does transparent VRAM compression. nvCOMP exists for
-GPU-parallel bulk compression but nobody has wired it into a transparent VRAM
-management layer. Approach: track allocated buffers, classify by type,
-compress idle buffers with specialized algorithms, decompress on GPU access
-via command-stream barriers. The AI workload compressor from Stage 4 could
-feed directly into this. Source into TODO.md Stage 2 once kernel module
-architecture is settled.
+→ Sourced into docs/action-plan.md (Milestones 3-4) and docs/roadmap.md (Stage 2).
+→ Research complete: mm/ has zero VRAM visibility (research/014), TTM is insertion point, MoE has 70-90% cold weights (research/017), tiered VRAM strategy defined, no existing offloading system uses compression.
 
 ## Compression advisor / auto-selector
-Design intent: instead of picking one algorithm for all pages, classify page
-content at compression time and select the best algorithm. Zero pages get
-zero allocation. Pointer-heavy pages get WKdm. Small-delta pages get BDI.
-General pages get LZ4. Cold general pages get re-compressed with zstd. This
-is a generalization of zram's CONFIG_ZRAM_MULTI_COMP. Source into TODO.md
-Stage 4 once multiple algorithms are benchmarked.
+→ Complete. Heuristic decision tree in src/lib/advisor.c. Picks best algorithm per page type.
 
 ## CXL memory with inline compression
-Design intent: Marvell Structera does this in hardware. A software-defined
-approach could make CXL-attached memory usable with compression on any CXL
-device. Pages stored on CXL memory are compressed before transit, reducing
-bandwidth usage and increasing effective capacity. Software LZ4/LZSSE8 on
-the CXL path could complement hardware solutions. Source into TODO.md Stage 3.
+→ Sourced into docs/roadmap.md (Stage 3). CXL Type-3 works today with Stage 1 module — no new infrastructure needed.
 
 ## Cross-process page deduplication + compression
-Design intent: KSM merges identical pages across processes. But similar
-pages (e.g., fork COW pages that diverged slightly) cannot be merged. Delta
-encoding between a base page and a diverged copy could achieve high
-compression for nearly-identical pages. This is a generalization of KSM that
-handles "similar but not identical" pages. Research needed on: how to find
-similar pages efficiently, how to store deltas compactly, how to decompress
-on access without excessive overhead. Post-Stage 1.
+→ Still in design. Post-Stage 1. KSM merges identical pages; MiniMem could compress similar pages using delta encoding. Research needed on efficient similarity detection.
+
+## Standalone library (libminimem) for AI ecosystem
+→ Sourced into docs/action-plan.md (Milestone 2).
+→ Package algorithm library as standalone .so/.a with stable API. Target users: llama.cpp, vLLM, Ollama, self-hosting tools.
+→ Key value: FP16 compressed 2:1 with zero quality loss — enables running larger models on same hardware.
+
+## DSC-inspired lossless predictor ("DSC-Lite")
+→ Sourced into docs/roadmap.md (Stage 4) and research/015.
+→ MMAP prediction + ICH dictionary for 32/64-bit words, no quantization. Estimated 1.5-2.5:1 on structured pages. Needs implementation.
+
+## Parallel cluster decompression
+→ Sourced into docs/action-plan.md (Step 4) and research/016.
+→ 4.5-7× latency reduction on 32-page clusters. Swap readahead provides clustering. mmu_gather for batched TLB flush.
+
+## Sparse activation map for MoE inference
+→ Sourced into research/017 and docs/action-plan.md (Milestone 3).
+→ MoE router is a natural activation map. Tiered VRAM: hot (uncompressed) → warm (compressed VRAM) → cold (compressed RAM) → frozen (compressed NVMe).

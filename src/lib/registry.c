@@ -9,6 +9,7 @@
 #include "lib/compressors/delta.h"
 #include "lib/compressors/wkdm64.h"
 #include "lib/compressors/block_class.h"
+#include "lib/compressors/ai_weights.h"
 
 static const struct minimem_compressor *compressors[MINIMEM_ALGO_COUNT] = {
     [MINIMEM_ALGO_SAME_PAGE]    = &minimem_same_page_compressor,
@@ -20,6 +21,9 @@ static const struct minimem_compressor *compressors[MINIMEM_ALGO_COUNT] = {
     [MINIMEM_ALGO_DELTA]        = &minimem_delta_compressor,
     [MINIMEM_ALGO_WKDM64]       = &minimem_wkdm64_compressor,
     [MINIMEM_ALGO_BLOCK_CLASS]  = &minimem_block_class_compressor,
+    [MINIMEM_ALGO_AI_FP16]      = &minimem_ai_fp16_compressor,
+    [MINIMEM_ALGO_AI_BF16]      = &minimem_ai_bf16_compressor,
+    [MINIMEM_ALGO_AI_INT8]      = &minimem_ai_int8_compressor,
 };
 
 const struct minimem_compressor *minimem_get_compressor(int algo_id)
