@@ -300,6 +300,12 @@ static ssize_t hook_faults_show(struct kobject *kobj,
 	return sprintf(buf, "%lu\n", minimem_hook_faults_handled());
 }
 
+static ssize_t kernel_patches_show(struct kobject *kobj,
+				    struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", minimem_hook_marker_ready() ? 1 : 0);
+}
+
 static ssize_t max_pool_pages_show(struct kobject *kobj,
 				    struct kobj_attribute *attr, char *buf)
 {
@@ -370,6 +376,8 @@ static struct kobj_attribute scanner_pages_skipped_attr =
 	__ATTR(scanner_pages_skipped, 0444, scanner_pages_skipped_show, NULL);
 static struct kobj_attribute hook_faults_attr =
 	__ATTR(hook_faults, 0444, hook_faults_show, NULL);
+static struct kobj_attribute kernel_patches_attr =
+	__ATTR(kernel_patches, 0444, kernel_patches_show, NULL);
 static struct kobj_attribute max_pool_pages_attr =
 	__ATTR(max_pool_pages, 0644, max_pool_pages_show, max_pool_pages_store);
 
@@ -400,6 +408,7 @@ static struct attribute *minimem_attrs[] = {
 	&scanner_pages_compressed_attr.attr,
 	&scanner_pages_skipped_attr.attr,
 	&hook_faults_attr.attr,
+	&kernel_patches_attr.attr,
 	&max_pool_pages_attr.attr,
 	NULL,
 };
