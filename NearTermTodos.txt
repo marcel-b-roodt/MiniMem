@@ -1,16 +1,9 @@
-## Immediate — End-to-End Verification
-
-- [x] Fix kprobe hook to resolve correct kernel symbols (__pte_offset_map_lock, pte_mkwrite_novma)
-- [x] Implement inline PTE helpers for x86-64 (set_pte_at → WRITE_ONCE, mk_pte → pfn_pte, pte_unmap_unlock)
-- [x] Run VM end-to-end test: kprobe registered, symbols resolved, compression/decompression roundtrip
-- [x] Add E2E test suite (minimem_e2e_test.sh) for hook resolution, min_savings_pct, max_pool_pages, scanner
-
 ## Near-Term — Kernel Module (Stage 1 completion)
 
-- [ ] Test transparent page fault decompression end-to-end (allocate memory → scanner compresses → access triggers decompress → verify data)
-- [ ] Test scanner idle page detection with CONFIG_PAGE_IDLE_FLAG (currently skipped in Alpine VM)
-- [ ] Build custom kernel with MiniMem patches applied (PTE_MARKER_MINIMEM in handle_pte_marker)
-- [ ] Verify shrinker actually frees memory under pressure
+- [ ] Build custom kernel with MiniMem patches applied — enables full scanner sweep. DKMS packaging done; patches auto-apply via install.sh. Need to rebuild kernel after patching.
+- [ ] Run full VM test suite with stress tests: `./build-kmod.sh build && ./build-kmod.sh tests && ./vm-test-minimem.sh`
+- [ ] Test on real hardware (not QEMU) — NUMA, large memory, different CPU arches
+- [ ] Verify shrinker under real memory pressure — test_stress_pressure covers this but needs VM run
 
 ## Algorithm Library (Stage 0 remaining)
 
