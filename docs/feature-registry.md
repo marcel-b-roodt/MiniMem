@@ -60,6 +60,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | DKMS packaging | ✅ Complete | dkms.conf, DKMS Makefile, install/uninstall scripts, convenience scripts; auto-rebuild per kernel update; kernel patch application support |
 | Kernel patch detection | ✅ Complete | Runtime detection of minimem_register_fault_handler symbol; registers VM_FAULT_NOPAGE handler when patches present; falls back to kprobe on unpatched kernels; kernel_patches sysfs attribute |
 | Scanner sweep (patched kernels) | ✅ Complete | minimem_hook_marker_ready() returns true when kernel patches detected; sweep pass compresses cold pages; handle_pte_marker returns VM_FAULT_NOPAGE via registered handler |
+| CI/CD (GitHub Actions) | ✅ Complete | 3 workflows: library build+test (gcc 12/14, Criterion), kernel module build (Ubuntu 22.04/24.04), packaging verification (DKMS+Debian+Fedora+AUR); Dependabot for Actions |
 
 ---
 
