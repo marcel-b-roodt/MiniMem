@@ -105,6 +105,12 @@ static atomic64_t hook_faults_missed;
 static atomic64_t hook_faults_ns;
 static bool hook_registered;
 static bool symbols_resolved;
+static bool kernel_patches_detected;
+
+typedef int (*minimem_register_fn)(vm_fault_t (*handler)(struct vm_fault *));
+typedef void (*minimem_unregister_fn)(void);
+static minimem_register_fn p_minimem_register_fault_handler;
+static minimem_unregister_fn p_minimem_unregister_fault_handler;
 
 static int resolve_kernel_symbols(void)
 {
@@ -151,6 +157,30 @@ static int resolve_kernel_symbols(void)
 	 * needed since we can just call spin_unlock on the ptl.
 	 */
 
+	/*
+	 * Detect kernel patches: if minimem_register_fault_handler is
+	 * exported, the kernel patches have been applied. This means
+	 * handle_pte_marker() will call our registered handler instead
+	 * of returning VM_FAULT_SIGBUS for MiniMem markers.
+	 */
+	p_minimem_register_fault_handler =
+		(minimem_register_fn)try_resolve_symbol(
+			"minimem_register_fault_handler");
+	p_minimem_unregister_fault_handler =
+		(minimem_unregister_fn)try_resolve_symbol(
+			"minimem_unregister_fault_handler");
+
+	if (p_minimem_register_fault_handler &&
+	    p_minimem_unregister_fault_handler) {
+		kernel_patches_detected = true;
+		pr_info("minimem: kernel patches detected — "
+			"fault handler registration available\n");
+	} else {
+		kernel_patches_detected = false;
+		pr_info("minimem: kernel patches not detected — "
+			"kprobe-only mode (scanner sweep disabled)\n");
+	}
+
 	symbols_resolved = true;
 	return 0;
 }
@@ -164,9 +194,9 @@ static inline pte_t minimem_mk_pte(struct page *page, pgprot_t pgprot)
 	return pfn_pte(page_to_pfn(page), pgprot);
 }
 
-static inline void minimem_set_pte_at(struct mm_struct *mm,
-				      unsigned long addr, pte_t *ptep,
-				      pte_t pte)
+void minimem_set_pte_at(struct mm_struct *mm,
+		      unsigned long addr, pte_t *ptep,
+		      pte_t pte)
 {
 	/*
 	 * On x86-64 with PTL held, set_pte_at() expands to
@@ -183,20 +213,104 @@ static inline pte_t minimem_pte_mkwrite(pte_t pte)
 	return pte;
 }
 
-static inline pte_t *minimem_pte_offset_map_lock(struct mm_struct *mm,
-						  pmd_t *pmd,
-						  unsigned long addr,
-						  spinlock_t **ptlp)
-{
-	if (p__pte_offset_map_lock)
-		return p__pte_offset_map_lock(mm, pmd, addr, ptlp);
-	return NULL;
-}
-
 static inline void minimem_pte_unmap_unlock(pte_t *ptep, spinlock_t *ptl)
 {
 	pte_unmap(ptep);
 	spin_unlock(ptl);
+}
+
+static vm_fault_t minimem_vm_fault_handler(struct vm_fault *vmf)
+{
+	pte_t orig_pte;
+	swp_entry_t entry;
+	unsigned long map_index, vaddr;
+	struct minimem_map_entry map_entry;
+	struct page *new_page;
+	struct minimem_decompress_result dres;
+	void *src_buf, *dst_addr;
+	pte_t new_pte;
+	struct vm_area_struct *vma = vmf->vma;
+	struct mm_struct *mm = vma->vm_mm;
+	spinlock_t *ptl;
+	pte_t *ptep;
+	ktime_t start;
+	int ret;
+
+	if (!symbols_resolved)
+		return VM_FAULT_SIGBUS;
+
+	orig_pte = vmf->orig_pte;
+
+	if (!is_minimem_pte(orig_pte))
+		return VM_FAULT_SIGBUS;
+
+	start = ktime_get_ns();
+	entry = minimem_pte_to_swp_entry(orig_pte);
+	map_index = minimem_entry_index(entry);
+	vaddr = vmf->address & PAGE_MASK;
+
+	ret = minimem_map_lookup(minimem_zswap_map(), vaddr, &map_entry);
+	if (ret) {
+		atomic64_inc(&hook_faults_missed);
+		return VM_FAULT_SIGBUS;
+	}
+
+	new_page = alloc_page_vma(GFP_HIGHUSER_MOVABLE, vma, vmf->address);
+	if (!new_page) {
+		atomic64_inc(&hook_faults_missed);
+		return VM_FAULT_OOM;
+	}
+
+	src_buf = kmalloc(map_entry.compressed_len, GFP_ATOMIC);
+	if (!src_buf) {
+		__free_page(new_page);
+		atomic64_inc(&hook_faults_missed);
+		return VM_FAULT_OOM;
+	}
+
+	zs_obj_read_begin(minimem_zswap_pool(), map_entry.zs_handle, src_buf);
+
+	dst_addr = kmap_local_page(new_page);
+	ret = minimem_decompress_page(src_buf, map_entry.compressed_len,
+				      map_entry.algo_id, dst_addr,
+				      MINIMEM_PAGE_SIZE, &dres);
+	kunmap_local(dst_addr);
+
+	zs_obj_read_end(minimem_zswap_pool(), map_entry.zs_handle, src_buf);
+	kfree(src_buf);
+
+	if (ret != MINIMEM_OK) {
+		__free_page(new_page);
+		atomic64_inc(&hook_faults_missed);
+		return VM_FAULT_SIGBUS;
+	}
+
+	minimem_map_remove(minimem_zswap_map(), vaddr);
+	zs_free(minimem_zswap_pool(), map_entry.zs_handle);
+
+	new_pte = minimem_mk_pte(new_page, vma->vm_page_prot);
+	if (vma->vm_flags & VM_WRITE)
+		new_pte = minimem_pte_mkwrite(new_pte);
+	new_pte = pte_mkyoung(new_pte);
+
+	ptep = minimem_pte_offset_map_lock(mm, vmf->pmd, vmf->address, &ptl);
+	if (ptep) {
+		if (pte_same(*ptep, orig_pte)) {
+			minimem_set_pte_at(mm, vmf->address, ptep, new_pte);
+			percpu_counter_add(&mm->rss_stat[MM_ANONPAGES], 1);
+		}
+		minimem_pte_unmap_unlock(ptep, ptl);
+	}
+
+	atomic64_inc(&hook_faults_handled);
+	atomic64_add(ktime_get_ns() - start, &hook_faults_ns);
+
+	pr_info("minimem: patched fault handled for vaddr=0x%lx, "
+		"algo=%d compressed=%zu decompressed=%zu\n",
+		vaddr, map_entry.algo_id, map_entry.compressed_len,
+		(size_t)MINIMEM_PAGE_SIZE);
+
+	return VM_FAULT_NOPAGE;
 }
 
 static int minimem_handle_swap_fault(struct vm_fault *vmf)
@@ -276,6 +390,7 @@ static int minimem_handle_swap_fault(struct vm_fault *vmf)
 	if (ptep) {
 		if (pte_same(*ptep, orig_pte)) {
 			minimem_set_pte_at(mm, vmf->address, ptep, new_pte);
+			percpu_counter_add(&mm->rss_stat[MM_ANONPAGES], 1);
 		}
 		minimem_pte_unmap_unlock(ptep, ptl);
 	}
@@ -286,7 +401,7 @@ static int minimem_handle_swap_fault(struct vm_fault *vmf)
 	pr_info("minimem: transparent fault handled for vaddr=0x%lx, "
 		"algo=%d compressed=%zu decompressed=%zu\n",
 		vaddr, map_entry.algo_id, map_entry.compressed_len,
-		MINIMEM_PAGE_SIZE);
+		(size_t)MINIMEM_PAGE_SIZE);
 
 	return 1;
 }
@@ -320,6 +435,7 @@ int minimem_hook_init(void)
 	atomic64_set(&hook_faults_handled, 0);
 	atomic64_set(&hook_faults_missed, 0);
 	atomic64_set(&hook_faults_ns, 0);
+	kernel_patches_detected = false;
 
 	ret = resolve_kernel_symbols();
 	if (ret) {
@@ -328,24 +444,45 @@ int minimem_hook_init(void)
 		return ret;
 	}
 
-	minimem_kp.symbol_name = "do_swap_page";
-	minimem_kp.pre_handler = minimem_kprobe_pre;
-
-	ret = register_kprobe(&minimem_kp);
-	if (ret) {
-		pr_warn("minimem: failed to register kprobe on do_swap_page: %d\n",
-			ret);
-		pr_warn("minimem: transparent fault interception disabled\n");
-		return ret;
+	if (kernel_patches_detected) {
+		ret = p_minimem_register_fault_handler(minimem_vm_fault_handler);
+		if (ret) {
+			pr_warn("minimem: failed to register fault handler: %d\n",
+				ret);
+			kernel_patches_detected = false;
+		} else {
+			pr_info("minimem: registered fault handler with kernel "
+				"(handle_pte_marker path)\n");
+		}
 	}
 
-	hook_registered = true;
-	pr_info("minimem: kprobe registered on do_swap_page\n");
+	if (!kernel_patches_detected) {
+		minimem_kp.symbol_name = "do_swap_page";
+		minimem_kp.pre_handler = minimem_kprobe_pre;
+
+		ret = register_kprobe(&minimem_kp);
+		if (ret) {
+			pr_warn("minimem: failed to register kprobe on do_swap_page: %d\n",
+				ret);
+			pr_warn("minimem: transparent fault interception disabled\n");
+			return ret;
+		}
+
+		hook_registered = true;
+		pr_info("minimem: kprobe registered on do_swap_page "
+			"(fallback — kernel patches not detected)\n");
+	}
+
 	return 0;
 }
 
 void minimem_hook_exit(void)
 {
+	if (kernel_patches_detected && p_minimem_unregister_fault_handler) {
+		p_minimem_unregister_fault_handler();
+		pr_info("minimem: unregistered fault handler from kernel\n");
+	}
+
 	if (hook_registered) {
 		unregister_kprobe(&minimem_kp);
 		hook_registered = false;
@@ -371,6 +508,19 @@ unsigned long minimem_hook_faults_missed(void)
 bool minimem_hook_symbols_resolved(void)
 {
 	return symbols_resolved;
+}
+
+bool minimem_hook_marker_ready(void)
+{
+	return kernel_patches_detected;
+}
+
+pte_t *minimem_pte_offset_map_lock(struct mm_struct *mm, pmd_t *pmd,
+				   unsigned long addr, spinlock_t **ptlp)
+{
+	if (!p__pte_offset_map_lock)
+		return NULL;
+	return p__pte_offset_map_lock(mm, pmd, addr, ptlp);
 }
 
 int minimem_compress_and_replace_pte(struct mm_struct *mm,
@@ -532,6 +682,13 @@ int minimem_compress_and_replace_pte(struct mm_struct *mm,
 	minimem_set_pte_at(mm, vaddr, ptep, new_pte);
 	minimem_pte_unmap_unlock(ptep, ptl);
 
+	/*
+	 * Decrement the anonymous page RSS counter. We replaced a present
+	 * PTE with a swap entry, so the page is no longer mapped. We can't
+	 * use dec_mm_counter() because mm_trace_rss_stat is unexported, so
+	 * we update the percpu counter directly.
+	 */
+	percpu_counter_add(&mm->rss_stat[MM_ANONPAGES], -1);
 	put_page(page);
 
 	atomic64_inc(&hook_faults_handled);

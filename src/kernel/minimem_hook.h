@@ -40,4 +40,28 @@ int minimem_compress_and_replace_pte(struct mm_struct *mm,
  */
 bool minimem_hook_symbols_resolved(void);
 
+/*
+ * Check if the handle_pte_marker kprobe is registered.
+ * This is required for the scanner sweep pass to safely
+ * compress pages — without it, MiniMem PTE marker faults
+ * return VM_FAULT_SIGBUS which kills the process.
+ */
+bool minimem_hook_marker_ready(void);
+
+/*
+ * Resolved pte_offset_map_lock via kallsyms.
+ * Returns NULL if symbols not resolved.
+ * Modules must use this instead of the inline pte_offset_map_lock()
+ * because __pte_offset_map_lock is not exported.
+ */
+pte_t *minimem_pte_offset_map_lock(struct mm_struct *mm, pmd_t *pmd,
+				   unsigned long addr, spinlock_t **ptlp);
+
+/*
+ * Set a PTE at the given address. Uses the resolved set_ptes symbol
+ * or WRITE_ONCE on x86-64 (since set_pte_at is a macro there).
+ */
+void minimem_set_pte_at(struct mm_struct *mm, unsigned long addr,
+			pte_t *ptep, pte_t pte);
+
 #endif /* MINIMEM_KERNEL_HOOK_H */
