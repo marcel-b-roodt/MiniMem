@@ -65,5 +65,7 @@ struct minimem_map *minimem_zswap_map(void);
 unsigned long minimem_zswap_total_bytes(void);
 unsigned long minimem_zswap_stored_pages(void);
 unsigned long minimem_zswap_bytes_saved(void);
+unsigned long minimem_zswap_max_pool_pages(void);
+void minimem_zswap_set_max_pool_pages(unsigned long max);
 
 #endif /* MINIMEM_KERNEL_ZSWAP_H */

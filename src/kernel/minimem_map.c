@@ -125,3 +125,38 @@ void minimem_map_remove_all(struct minimem_map *map)
 
 	atomic64_set(&map->count, 0);
 }
+
+unsigned long minimem_map_drain(struct minimem_map *map,
+				 unsigned long max_entries,
+				 minimem_map_drain_cb callback,
+				 void *priv)
+{
+	struct minimem_map_entry *entry;
+	unsigned long index;
+	unsigned long drained = 0;
+
+	spin_lock(&map->lock);
+	xa_for_each(&map->entries, index, entry) {
+		struct minimem_map_entry copy;
+		unsigned long vaddr;
+
+		if (drained >= max_entries)
+			break;
+
+		copy = *entry;
+		vaddr = index << PAGE_SHIFT;
+
+		xa_erase(&map->entries, index);
+		kmem_cache_free(minimem_entry_cache, entry);
+		atomic64_dec(&map->count);
+
+		spin_unlock(&map->lock);
+		callback(vaddr, &copy, priv);
+		spin_lock(&map->lock);
+
+		drained++;
+	}
+	spin_unlock(&map->lock);
+
+	return drained;
+}

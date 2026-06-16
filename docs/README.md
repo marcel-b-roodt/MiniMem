@@ -16,6 +16,7 @@
 | [vram-compression.md](vram-compression.md) | VRAM-specific compression deep dive |
 | [hardware-acceleration.md](hardware-acceleration.md) | Hardware acceleration paths: CXL, QAT, FPGA, SIMD |
 | [specialized-compression.md](specialized-compression.md) | Second-layer investigation: novel specialized approaches |
+| [how-it-works.md](how-it-works.md) | Plain-language guide: what MiniMem does, how it works, and why it matters |
 
 ---
 
@@ -30,6 +31,7 @@
 ## Where to start
 
 - **Understanding the vision?** → [goal.md](goal.md)
+- **New to the project?** → [how-it-works.md](how-it-works.md)
 - **Curious what's planned?** → [roadmap.md](roadmap.md) or [feature-registry.md](feature-registry.md)
 - **Evaluating algorithms?** → [candidates.md](candidates.md)
 - **VRAM compression?** → [vram-compression.md](vram-compression.md)

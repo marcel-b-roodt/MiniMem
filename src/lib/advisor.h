@@ -1,7 +1,11 @@
 #ifndef MINIMEM_ADVISOR_H
 #define MINIMEM_ADVISOR_H
 
+#if defined(MINIMEM_BUILD) || defined(MINIMEM_KERNEL)
 #include "lib/minimem.h"
+#else
+#include <minimem/minimem.h>
+#endif
 #include <stddef.h>
 #include <stdint.h>
 

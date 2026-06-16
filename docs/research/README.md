@@ -31,6 +31,10 @@ Numbered research documents capturing findings from papers, experiments, and inv
 | [015](015-display-stream-compression-dsc.md) | Display Stream Compression (DSC) | DSC is lossy (visually lossless only); hardware is display-path only; MMAP prediction + ICH techniques borrowable for lossless memory compression; no CXL/PCIe compression standard exists |
 | [016](016-parallel-decompression-swarming.md) | Parallel Decompression Swarming | 4.5–7× latency reduction via parallel cluster decompression; swap readahead provides clustering; RCU + atomic refs for safety; GPU viable for VRAM only (not CPU faults); mmu_gather for batched TLB flush |
 | [017](017-sparse-activation-brain-inspired-recall.md) | Sparse Activation & Brain-Inspired Recall | MoE models have 70-90% cold weights; layer-sequential access enables perfect prefetching; tiered VRAM/RAM/NVMe strategy; no existing offloading system uses compression |
+| [018](018-memory-overhead-analysis.md) | Memory Overhead Analysis | ~88 bytes metadata per compressed page; 12.5% minimum savings threshold; shrinker recommended |
+| [019](019-pte-marking-and-fault-interception.md) | PTE Marking & Fault Interception | SWP_PTE_MARKER type 31 + BIT(3) custom marker; 54-bit index space; page fault → decompress → remap; module-only via kprobes or kernel patch for do_swap_page |
+| [020](020-kernel-patch-do-swap-page.md) | Kernel Patch for do_swap_page() | Add PTE_MARKER_MINIMEM check in handle_pte_marker(); function pointer registration for module callback; kprobe approach works but has overhead and reliability limitations |
+| [021](021-zram-baseline-comparison.md) | zram Baseline Comparison | zram only compresses swapped pages; MiniMem compresses still-mapped idle pages; MiniMem 2.8× better ratio on pointer-heavy pages, 27× on AI INT8; complementary to zram, not a replacement |
 
 ---
 

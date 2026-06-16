@@ -169,6 +169,33 @@ fi
 echo "Module loaded successfully"
 echo ""
 
+# Run kselftest first (before any state modifications)
+echo "=== Running kselftest ==="
+sh /kselftest-minimem.sh
+echo ""
+
+# Run end-to-end transparent compression test
+echo "=== Running E2E test ==="
+sh /minimem_e2e_test.sh
+echo ""
+
+# Run transparent compression test (compress → PTE replace → fault → verify)
+echo "=== Running transparent compression test ==="
+sh /test_transparent_compress.sh
+echo ""
+
+# Check for kernel errors after kselftest
+echo "=== Kernel log after kselftest ==="
+dmesg | grep -iE "minimem" | tail -5 || true
+echo ""
+
+# Re-load module if kselftest unloaded it
+if [ ! -d /sys/kernel/minimem ]; then
+    echo "Re-loading minimem module (kselftest unloaded it)..."
+    insmod /minimem.ko
+    sleep 1
+fi
+
 # Check sysfs
 echo "=== Sysfs stats ==="
 for f in /sys/kernel/minimem/*; do
@@ -217,6 +244,36 @@ echo "Stats after parallel:"
 cat /sys/kernel/debug/minimem/stats 2>/dev/null || echo "stats read failed"
 echo ""
 
+# Test max_pool_pages sysfs knob
+echo "=== max_pool_pages test ==="
+echo "  Initial max_pool_pages: $(cat /sys/kernel/minimem/max_pool_pages)"
+echo "0" > /sys/kernel/minimem/max_pool_pages
+echo "  After setting to 0 (unlimited): $(cat /sys/kernel/minimem/max_pool_pages)"
+echo "1" > /sys/kernel/minimem/max_pool_pages
+echo "  After setting to 1: $(cat /sys/kernel/minimem/max_pool_pages)"
+echo "0" > /sys/kernel/minimem/max_pool_pages
+echo "  Reset to unlimited: $(cat /sys/kernel/minimem/max_pool_pages)"
+echo ""
+
+# Test min_savings_pct sysfs knob
+echo "=== min_savings_pct test ==="
+echo "  Initial min_savings_pct: $(cat /sys/kernel/minimem/min_savings_pct)"
+echo "50" > /sys/kernel/minimem/min_savings_pct
+echo "  After setting to 50: $(cat /sys/kernel/minimem/min_savings_pct)"
+echo "13" > /sys/kernel/minimem/min_savings_pct
+echo "  Reset to 13: $(cat /sys/kernel/minimem/min_savings_pct)"
+echo ""
+
+# Test scanner sysfs knobs (scanner is disabled by default)
+echo "=== Scanner sysfs test ==="
+echo "  scanner_enabled: $(cat /sys/kernel/minimem/scanner_enabled)"
+echo "  scanner_interval_ms: $(cat /sys/kernel/minimem/scanner_interval_ms)"
+echo "  scanner_pages_scanned: $(cat /sys/kernel/minimem/scanner_pages_scanned)"
+echo "  scanner_pages_idle: $(cat /sys/kernel/minimem/scanner_pages_idle)"
+echo "  scanner_pages_compressed: $(cat /sys/kernel/minimem/scanner_pages_compressed)"
+echo "  scanner_pages_skipped: $(cat /sys/kernel/minimem/scanner_pages_skipped)"
+echo ""
+
 # Final check
 echo "=== Final sysfs ==="
 for f in /sys/kernel/minimem/*; do
@@ -229,11 +286,15 @@ echo "=== Kernel log check ==="
 dmesg | grep -iE "bug|panic|oops|minimem" | tail -10 || true
 echo ""
 
-# Unload module
+# Unload module (kselftest may have already unloaded it)
 echo "Unloading minimem module..."
-rmmod minimem 2>/dev/null || echo "rmmod failed"
+rmmod minimem 2>/dev/null || true
 sleep 1
-echo "Module unloaded"
+if [ -d /sys/kernel/minimem ]; then
+    echo "WARNING: sysfs still exists after rmmod"
+else
+    echo "Module unloaded"
+fi
 echo ""
 
 echo "TESTS_COMPLETE_MARKER"
@@ -250,6 +311,22 @@ INITEOF
     # Copy the kernel module (put in / to avoid tmpfs overwriting)
     cp "$MODULE" "$root/minimem.ko"
     chmod +x "$root/minimem.ko"
+
+    # Copy kselftest script
+    cp "$SCRIPT_DIR/tests/kernel/kselftest-minimem.sh" "$root/kselftest-minimem.sh"
+    chmod +x "$root/kselftest-minimem.sh"
+
+    # Copy e2e test script
+    cp "$SCRIPT_DIR/tests/kernel/minimem_e2e_test.sh" "$root/minimem_e2e_test.sh"
+    chmod +x "$root/minimem_e2e_test.sh"
+
+    # Copy transparent compression test
+    cp "$SCRIPT_DIR/tests/kernel/test_transparent_compress.sh" "$root/test_transparent_compress.sh"
+    chmod +x "$root/test_transparent_compress.sh"
+
+    # Copy static E2E test binary
+    cp "$SCRIPT_DIR/tests/kernel/test_transparent_e2e" "$root/test_transparent_e2e"
+    chmod +x "$root/test_transparent_e2e"
 
     # Copy kernel modules we need (lz4_compress)
     local kmod_dir="/lib/modules/$(uname -r)"
@@ -375,6 +452,25 @@ run_vm_test() {
     echo "  Decompress ns:     $serial_decompress"
     echo "  Parallel pages:    $parallel_pages"
     echo "  Final zswap pages: $zswap_pages"
+    echo "  max_pool_pages:    $(grep 'max_pool_pages' "$output_file" | tail -1 | awk '{print $NF}' || echo 'N/A')"
+    echo "  min_savings_pct:   $(grep 'min_savings_pct' "$output_file" | tail -1 | awk '{print $NF}' || echo 'N/A')"
+    echo "  scanner_enabled:   $(grep 'scanner_enabled' "$output_file" | tail -1 | awk '{print $NF}' || echo 'N/A')"
+    echo ""
+    local kselftest_pass=$(grep '^PASS: ' "$output_file" 2>/dev/null | wc -l)
+    local kselftest_fail=$(grep '^FAIL: ' "$output_file" 2>/dev/null | wc -l)
+    local kselftest_skip=$(grep '^SKIP: ' "$output_file" 2>/dev/null | wc -l)
+    echo "  kselftest PASS:    $kselftest_pass"
+    echo "  kselftest FAIL:    $kselftest_fail"
+    echo "  kselftest SKIP:    $kselftest_skip"
+    local e2e_pass=$(grep '^PASS: ' "$output_file" 2>/dev/null | wc -l)
+    local e2e_fail=$(grep '^FAIL: ' "$output_file" 2>/dev/null | wc -l)
+    local e2e_skip=$(grep '^SKIP: ' "$output_file" 2>/dev/null | wc -l)
+    local e2e_only_pass=$((e2e_pass - kselftest_pass))
+    local e2e_only_fail=$((e2e_fail - kselftest_fail))
+    local e2e_only_skip=$((e2e_skip - kselftest_skip))
+    echo "  e2e PASS:          ${e2e_only_pass:-0}"
+    echo "  e2e FAIL:          ${e2e_only_fail:-0}"
+    echo "  e2e SKIP:          ${e2e_only_skip:-0}"
     echo ""
 
     if grep -q "All tests passed!" "$output_file"; then

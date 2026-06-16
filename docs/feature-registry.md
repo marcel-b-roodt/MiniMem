@@ -12,7 +12,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 |---|---|---|
 | Benchmark framework (Criterion + page/tensor harness) | ✅ Complete | Criterion integrated; 11 synthetic page types; JSON/CSV output |
 | LZ4 integration | ✅ Complete | Reference C v1.10.0 vendored; roundtrip tests passing; benchmarks published |
-| LZSSE8 integration | 📋 Planned | SSE4.1 SIMD; fastest software decompression; x86-64 only |
+| LZSSE8 integration | ✅ Complete | SSE4.1 SIMD LZ77; ~4.7 GB/s decompress; runtime feature detection; BSD-3-Clause vendored; falls back to LZ4 on non-x86 |
 | WKdm implementation | ✅ Complete | Scalar 32-bit implementation; scratch buffer API; zero-allocation compress/decompress; 2.08:1 on pointer-heavy |
 | WKdm-64 (8-byte word) | ✅ Complete | Scalar 64-bit implementation; 29:1 on zero pages; 2x faster decompress than WKdm32; 1.5:1 on pointer-heavy |
 | BDI implementation | ✅ Complete | Cache-line compressor; zero/uniform/small-delta modes; tests passing |
@@ -25,6 +25,8 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | AI weight compressor (INT8) | ✅ Complete | Row-delta XOR + block classification; 44.5:1 on uniform INT8, 1.25:1 on integer-heavy, 1.57μs decompress |
 | Algorithm comparison benchmark suite | ✅ Complete | 10 algorithms x 11 page types; throughput, latency, ratio measured |
 | Benchmark report format | ✅ Complete | CSV/JSON output to reports/; Stage 0 results published with 7 algorithms |
+| Userspace library (libminimem) | ✅ Complete | Shared and static library; pkg-config; CMake find module; public headers (minimem.h, advisor.h, test_data.h); two example programs; soname versioning |
+| kselftest (kernel module) | ✅ Complete | 41 tests: module load/unload, sysfs attributes, debugfs, PTE marker roundtrip, compression roundtrip, benchmark, sysfs knobs (max_pool_pages, min_savings_pct, scanner), runs in QEMU VM |
 
 ---
 
@@ -40,15 +42,19 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Parallel cluster decompression | ✅ Complete | Workqueue-based (minimem_dec); atomic completion; 32-page clusters; **3.76× speedup on 4 vCPUs** |
 | QEMU VM test harness | ✅ Complete | vm-test-minimem.sh; Alpine rootfs; safe bare-metal isolation; 7-phase progressive testing |
 | Multi-algorithm dispatch | ✅ Complete | 7 algorithms wired into kernel dispatch; same_page, BDI, WKdm, WKdm-64, block_class, LZ4, delta |
-| Sysfs stats interface | ✅ Complete | 17 attributes: compress/decompress counts, latencies, zswap pages/bytes/saved, pool_pages, benchmark timings |
+| Sysfs stats interface | ✅ Complete | 25 attributes: compress/decompress counts, latencies, zswap pages/bytes/saved, pool_pages, max_pool_pages, benchmark timings, scanner knobs, hook_faults, scanner_pages_compressed/skipped |
 | Memory overhead tracking | ✅ Complete | pool_pages sysfs attribute; zswap_pages/bytes/saved for compression efficiency |
 | Concurrency (RCU-safe, per-CPU) | ✅ Complete | RCU-safe xarray lookups; spinlock-protected writes; per-CPU compress/decompress buffers |
-| PTE marking for compressed pages | 📋 Planned | All 32 SWP_TYPE slots consumed; need kernel patch or zswap-like interception |
-| Page fault handler (decompress path) | 📋 Planned | Intercept → decompress → remap → TLB flush |
-| Compression policy engine | 📋 Planned | Idle time, access frequency, min savings threshold |
-| Page idle tracking | 📋 Planned | PG_idle/PG_young or soft-dirty bit hook |
+| PTE marking for compressed pages | 🔧 In Progress | PTE_MARKER_MINIMEM=BIT(3) in SWP_PTE_MARKER offset; 54-bit index space; debugfs roundtrip test; compress_and_replace_pte implemented via resolved kallsyms symbols |
+| Page fault handler (decompress path) | ✅ Complete | kprobe on do_swap_page; __pte_offset_map_lock and pte_mkwrite resolved via kallsyms; set_pte_at implemented as WRITE_ONCE (x86-64); installs present PTE after decompression; all symbols resolve on 6.18 with CONFIG_KALLSYMS_ALL=y |
+| PTE replacement (compress path) | ✅ Complete | minimem_compress_and_replace_pte() walks pgd→p4d→pud→pmd→pte; compresses page; stores in zsmalloc; replaces PTE with MiniMem swap entry; enforces min_savings_pct |
+| E2E test suite | ✅ Complete | minimem_e2e_test.sh: hook symbol resolution, compression roundtrip, min_savings_pct enforcement, max_pool_pages enforcement, scanner detection, decompression accounting, module lifecycle; 15 tests passing in QEMU VM |
+| Idle page tracking | ✅ Complete | minimem_scanner daemon; CONFIG_PAGE_IDLE_FLAG; PFN batch scanning; compresses idle pages into zsmalloc; respects min_savings_pct threshold; updates pages_compressed/skipped counters |
+| Memory pressure shrinker | ✅ Complete | shrinker_alloc/register/free API; drains compressed entries via minimem_map_drain(); frees zsmalloc memory under pressure |
+| Pool size limit | ✅ Complete | max_pool_pages sysfs knob (0=unlimited); compress_and_store returns -ENOSPC when limit reached |
+| Sysfs knobs (scanner + policy) | ✅ Complete | scanner_enabled, scanner_interval_ms, min_savings_pct, max_pool_pages, scanner_pages_scanned/idle/compressed/skipped |
 | Userspace test driver | ✅ Complete | test_minimem_kernel: same_page, advisor, roundtrip, map, latency budget |
-| kselftest suite | 📋 Planned | In-kernel load/unload, round-trip, stress, stats |
+| kselftest suite | ✅ Complete | 41 tests: module load/unload, sysfs attributes, debugfs, PTE marker roundtrip, compression roundtrip, benchmark, sysfs knobs (max_pool_pages, min_savings_pct, scanner) |
 | Kernel compatibility | ✅ Complete | Built for 6.18.33-1-MANJARO; zsmalloc 6.x API |
 
 ---

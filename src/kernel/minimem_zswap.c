@@ -25,10 +25,12 @@
 #include "minimem_zswap.h"
 #include "minimem_compress.h"
 #include "minimem_map.h"
+#include "minimem_scanner.h"
 
 static struct zs_pool *minimem_pool;
 static struct minimem_map minimem_map;
 
+static atomic64_t mm_max_pool_pages = ATOMIC64_INIT(0);
 static atomic64_t mm_stored_pages;
 static atomic64_t mm_total_bytes;
 static atomic64_t mm_bytes_saved;
@@ -78,6 +80,10 @@ int minimem_compress_and_store(unsigned long vaddr, struct page *page)
 	if (!minimem_pool || !page)
 		return -EINVAL;
 
+	if (atomic64_read(&mm_max_pool_pages) > 0 &&
+	    atomic64_read(&mm_stored_pages) >= atomic64_read(&mm_max_pool_pages))
+		return -ENOSPC;
+
 	src_addr = kmap_local_page(page);
 	if (!src_addr)
 		return -EFAULT;
@@ -104,6 +110,18 @@ int minimem_compress_and_store(unsigned long vaddr, struct page *page)
 		preempt_enable();
 		kunmap_local(src_addr);
 		return MINIMEM_INCOMPRESSIBLE;
+	}
+
+	{
+		long min_pct = minimem_scanner_min_savings_pct();
+		long savings_pct = (100L * (MINIMEM_PAGE_SIZE - res.compressed_size))
+				   / MINIMEM_PAGE_SIZE;
+
+		if (savings_pct < min_pct) {
+			preempt_enable();
+			kunmap_local(src_addr);
+			return MINIMEM_INCOMPRESSIBLE;
+		}
 	}
 
 	copy_len = res.compressed_size;
@@ -234,4 +252,14 @@ unsigned long minimem_zswap_stored_pages(void)
 unsigned long minimem_zswap_bytes_saved(void)
 {
 	return (unsigned long)atomic64_read(&mm_bytes_saved);
+}
+
+unsigned long minimem_zswap_max_pool_pages(void)
+{
+	return (unsigned long)atomic64_read(&mm_max_pool_pages);
+}
+
+void minimem_zswap_set_max_pool_pages(unsigned long max)
+{
+	atomic64_set(&mm_max_pool_pages, (s64)max);
 }

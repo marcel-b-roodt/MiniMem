@@ -1,0 +1,60 @@
+From: MiniMem Project <minimem@noreply.github.com>
+Subject: [PATCH] minimem: module registration for fault handler
+
+This patch adds the kernel-side registration mechanism for the
+MiniMem fault handler function pointer. The MiniMem module sets
+minimem_fault_handler during module init and clears it on exit.
+
+This is a companion to the handle_pte_marker() patch and should
+be applied after it.
+
+Signed-off-by: MiniMem Project <minimem@noreply.github.com>
+---
+ mm/minimem_fault.c | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/mm/minimem_fault.c b/mm/minimem_fault.c
+new file mode 100644
+index 000000000000..123456789abc
+--- /dev/null
++++ b/mm/minimem_fault.c
+@@ -0,0 +1,30 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * minimem_fault.c — Kernel-side MiniMem fault handler registration
++ *
++ * Provides the function pointer that the MiniMem module registers
++ * its fault handler with. The pointer is checked in
++ * handle_pte_marker() when a PTE_MARKER_MINIMEM fault is detected.
++ */
++
++#include <linux/mm.h>
++#include <linux/mm_types.h>
++#include <linux/minimem.h>
++
++/*
++ * Global fault handler pointer. Set by the MiniMem module during init,
++ * cleared during exit. Accessed under RCU or with the PTL held (which
++ * prevents concurrent registration/unregistration during faults).
++ */
++vm_fault_t (*minimem_fault_handler)(struct vm_fault *vmf);
++EXPORT_SYMBOL_GPL(minimem_fault_handler);
++
++/*
++ * Registration helpers for the MiniMem module.
++ * The module calls minimem_register_fault_handler() in module_init
++ * and minimem_unregister_fault_handler() in module_exit.
++ */
++int minimem_register_fault_handler(vm_fault_t (*handler)(struct vm_fault *vmf))
++{
++	WRITE_ONCE(minimem_fault_handler, handler);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(minimem_register_fault_handler);
++
++void minimem_unregister_fault_handler(void)
++{
++	WRITE_ONCE(minimem_fault_handler, NULL);
++	synchronize_rcu();
++}
++EXPORT_SYMBOL_GPL(minimem_unregister_fault_handler);

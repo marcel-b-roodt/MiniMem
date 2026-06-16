@@ -1,6 +1,12 @@
 #ifndef MINIMEM_TEST_DATA_H
 #define MINIMEM_TEST_DATA_H
 
+#if defined(MINIMEM_BUILD) || defined(MINIMEM_KERNEL)
+#include "lib/minimem.h"
+#else
+#include <minimem/minimem.h>
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 

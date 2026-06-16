@@ -1,31 +1,30 @@
-## Immediate — Kernel Module (Stage 1)
+## Immediate — End-to-End Verification
 
-- [ ] Install linux618-headers after reboot; compile kernel module (`cd src/kernel && make`)
-- [ ] Test insmod/rmmod on VM; verify sysfs stats
-- [ ] Wire WKdm-64, BDI, LZ4 into minimem_compress.c kernel dispatch
-- [ ] Design swp_entry format for "compressed in RAM" pages
-- [ ] Implement page fault handler (do_swap_page hook → decompress → remap → TLB flush)
-- [ ] Hook PG_idle/PG_young for idle page tracking
-- [ ] Implement compression policy daemon (background workqueue)
+- [x] Fix kprobe hook to resolve correct kernel symbols (__pte_offset_map_lock, pte_mkwrite_novma)
+- [x] Implement inline PTE helpers for x86-64 (set_pte_at → WRITE_ONCE, mk_pte → pfn_pte, pte_unmap_unlock)
+- [x] Run VM end-to-end test: kprobe registered, symbols resolved, compression/decompression roundtrip
+- [x] Add E2E test suite (minimem_e2e_test.sh) for hook resolution, min_savings_pct, max_pool_pages, scanner
+
+## Near-Term — Kernel Module (Stage 1 completion)
+
+- [ ] Test transparent page fault decompression end-to-end (allocate memory → scanner compresses → access triggers decompress → verify data)
+- [ ] Test scanner idle page detection with CONFIG_PAGE_IDLE_FLAG (currently skipped in Alpine VM)
+- [ ] Build custom kernel with MiniMem patches applied (PTE_MARKER_MINIMEM in handle_pte_marker)
+- [ ] Verify shrinker actually frees memory under pressure
 
 ## Algorithm Library (Stage 0 remaining)
 
-- [ ] LZSSE8 integration (SSE4.1 SIMD; requires runtime feature detection)
 - [ ] SIMD paths for LZ4 (SSE2/AVX2)
 - [ ] Zstd dictionary mode (add dictionary training for homogeneous pages)
 - [ ] Real data benchmarks (collect actual page dumps + safetensor weights)
-- [ ] DSC-Lite lossless predictor (MMAP + ICH; research/015)
 
-## Library Packaging (Milestone 2)
+## Library Packaging
 
-- [ ] Create libminimem.so/.a build target in meson.build
-- [ ] Stable API header with versioning
-- [ ] pkg-config and CMake find module
-- [ ] Example programs (compress file, compress buffer)
+- [ ] Install target verification on clean system
+- [ ] CI/CD for library build and kernel module build
 
 ## VRAM Prototype (Milestone 3)
 
 - [ ] CUDA userspace program: load LLM weights, compress cold tensors with libminimem
 - [ ] Tiered VRAM management (hot/warm/cold/frozen)
 - [ ] MoE sparse activation: use router to determine hot experts
-- [ ] Benchmark on Mixtral 8x7B or comparable MoE model

@@ -62,6 +62,20 @@ int minimem_map_lookup(struct minimem_map *map, unsigned long vaddr,
 int minimem_map_remove(struct minimem_map *map, unsigned long vaddr);
 
 /*
+ * Drain up to @max_entries from the map, calling @callback for each.
+ * The callback receives the vaddr and entry for each removed item.
+ * Returns the number of entries drained.
+ * Holds map->lock during iteration; entries are removed under the lock.
+ */
+typedef void (*minimem_map_drain_cb)(unsigned long vaddr,
+				      struct minimem_map_entry *entry,
+				      void *priv);
+unsigned long minimem_map_drain(struct minimem_map *map,
+				 unsigned long max_entries,
+				 minimem_map_drain_cb callback,
+				 void *priv);
+
+/*
  * Remove all entries from the map. Called during module unload
  * to decompress all remaining pages.
  */

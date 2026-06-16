@@ -14,7 +14,7 @@ Stages are ordered by dependency. Each stage produces components consumed by lat
 |---|---|---|
 | Benchmark framework | ✅ Complete | Criterion harness; 11 synthetic page types; JSON/CSV output |
 | LZ4 | ✅ Complete | v1.10.0 vendored; roundtrip tests; 2.5μs decompress (O2) |
-| LZSSE8 | 📋 Planned | SSE4.1 SIMD; fastest software decompress |
+| LZSSE8 | ✅ Complete | SSE4.1 SIMD LZ77; ~4.7 GB/s decompress; runtime detection; BSD-3-Clause vendored |
 | WKdm | ✅ Complete | 32-bit word-oriented; 2.08:1 on pointer-heavy |
 | WKdm-64 | ✅ Complete | 64-bit variant; 29:1 on zero; 2× faster decompress |
 | BDI | ✅ Complete | Base-Delta-Immediate; 60:1 on zero; 0.17μs decompress |
@@ -35,17 +35,19 @@ The core deliverable: transparent compression of cold pages in a running Linux s
 
 | Feature | Status | Notes |
 |---|---|---|
-| Module scaffold | ✅ Complete | Loadable module, sysfs stats (14 attributes), debugfs test interface |
+| Module scaffold | ✅ Complete | Loadable module, sysfs stats (22 attributes), debugfs test interface |
 | Compression map | ✅ Complete | xarray + kmem_cache; RCU-safe lookups |
 | Zsmalloc storage | ✅ Complete | zsmalloc pool for compressed page data; 6.x kernel API (zs_obj_write/read) |
 | Compression dispatch | ✅ Complete | Per-CPU buffers; 7 algorithms (same_page, BDI, WKdm, WKdm-64, block_class, LZ4, delta) |
 | Parallel cluster decompression | ✅ Complete | Workqueue (minimem_dec); atomic completion; 32-page cluster support |
 | Debugfs benchmark | ✅ Complete | baseline/serial/parallel modes via /sys/kernel/debug/minimem/bench |
-| Compile and load module | ✅ Complete | minimem.ko for 6.18.33-1-MANJARO; depends on lz4_compress |
-| PTE marking | 📋 Planned | All 32 SWP_TYPE slots consumed; need kernel patch or zswap-like approach |
-| Page fault handler | 📋 Planned | Intercept → decompress → remap → TLB flush |
-| Idle page tracking | 📋 Planned | PG_idle/PG_young or soft-dirty bits |
-| Compression policy | 📋 Planned | Idle time threshold, min savings ratio, background daemon |
+| Compile and load module | ✅ Complete | minimem.ko v0.6.0 for 6.18.33-1-MANJARO; depends on lz4_compress |
+| PTE marking | 🔧 In Progress | PTE_MARKER_MINIMEM=BIT(3) in SWP_PTE_MARKER; 54-bit index; debugfs roundtrip test; kernel patch needed |
+| Page fault handler | 🔧 In Progress | kprobe on do_swap_page; kallsyms_lookup_name via kprobe trick for unexported symbols; PTE install after decompression; needs VM end-to-end test |
+| Idle page tracking | ✅ Complete | minimem_scanner daemon; CONFIG_PAGE_IDLE_FLAG; PFN batch scanning; compresses idle pages; respects min_savings_pct |
+| Memory pressure shrinker | ✅ Complete | shrinker_alloc/register/free; count/scan callbacks; decompresses LRU pages |
+| Compression policy sysfs | ✅ Complete | scanner_enabled, scanner_interval_ms, min_savings_pct, max_pool_pages, scanner_pages_scanned/idle |
+| Pool size limit | ✅ Complete | max_pool_pages sysfs knob (0=unlimited); compress_and_store returns -ENOSPC when limit reached |
 | kselftest | 📋 Planned | Load/unload, round-trip, stress, stats |
 
 ---

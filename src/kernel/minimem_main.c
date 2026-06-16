@@ -34,11 +34,17 @@
 #include "minimem_compress.h"
 #include "minimem_zswap.h"
 #include "minimem_parallel.h"
+#include "minimem_fault.h"
+#include "minimem_shrinker.h"
+#include "minimem_scanner.h"
+#include "minimem_hook.h"
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("MiniMem Project");
 MODULE_DESCRIPTION("Transparent in-memory page compression");
-MODULE_VERSION("0.3.0");
+MODULE_VERSION("0.6.0");
+
+#define MINIMEM_VERSION_STR "0.6.0"
 
 static struct minimem_stats {
 	atomic64_t pages_compressed;
@@ -77,8 +83,7 @@ static ssize_t pages_decompressed_show(struct kobject *kobj,
 static ssize_t bytes_saved_show(struct kobject *kobj,
 				struct kobj_attribute *attr, char *buf)
 {
-	return sprintf(buf, "%lld\n",
-		       atomic64_read(&minimem_stats.bytes_saved));
+	return sprintf(buf, "%lu\n", minimem_zswap_bytes_saved());
 }
 
 static ssize_t compress_count_show(struct kobject *kobj,
@@ -210,6 +215,109 @@ static ssize_t bench_parallel_ns_show(struct kobject *kobj,
 		       total, total / pages);
 }
 
+static ssize_t scanner_enabled_show(struct kobject *kobj,
+				    struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", minimem_scanner_is_enabled() ? 1 : 0);
+}
+
+static ssize_t scanner_enabled_store(struct kobject *kobj,
+				     struct kobj_attribute *attr,
+				     const char *buf, size_t count)
+{
+	int val;
+	int ret = kstrtoint(buf, 0, &val);
+	if (ret)
+		return ret;
+	minimem_scanner_set_enabled(val);
+	return count;
+}
+
+static ssize_t scanner_interval_ms_show(struct kobject *kobj,
+					struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%ld\n", minimem_scanner_interval_ms());
+}
+
+static ssize_t scanner_interval_ms_store(struct kobject *kobj,
+					  struct kobj_attribute *attr,
+					  const char *buf, size_t count)
+{
+	long val;
+	int ret = kstrtol(buf, 0, &val);
+	if (ret)
+		return ret;
+	minimem_scanner_set_interval_ms(val);
+	return count;
+}
+
+static ssize_t min_savings_pct_show(struct kobject *kobj,
+				    struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%ld\n", minimem_scanner_min_savings_pct());
+}
+
+static ssize_t min_savings_pct_store(struct kobject *kobj,
+				     struct kobj_attribute *attr,
+				     const char *buf, size_t count)
+{
+	long val;
+	int ret = kstrtol(buf, 0, &val);
+	if (ret)
+		return ret;
+	minimem_scanner_set_min_savings_pct(val);
+	return count;
+}
+
+static ssize_t scanner_pages_scanned_show(struct kobject *kobj,
+					   struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_scanner_pages_scanned());
+}
+
+static ssize_t scanner_pages_idle_show(struct kobject *kobj,
+				       struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_scanner_pages_idle());
+}
+
+static ssize_t scanner_pages_compressed_show(struct kobject *kobj,
+					      struct kobj_attribute *attr,
+					      char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_scanner_pages_compressed());
+}
+
+static ssize_t scanner_pages_skipped_show(struct kobject *kobj,
+					   struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_scanner_pages_skipped());
+}
+
+static ssize_t hook_faults_show(struct kobject *kobj,
+				 struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_hook_faults_handled());
+}
+
+static ssize_t max_pool_pages_show(struct kobject *kobj,
+				    struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_zswap_max_pool_pages());
+}
+
+static ssize_t max_pool_pages_store(struct kobject *kobj,
+				     struct kobj_attribute *attr,
+				     const char *buf, size_t count)
+{
+	unsigned long val;
+	int ret = kstrtoul(buf, 0, &val);
+	if (ret)
+		return ret;
+	minimem_zswap_set_max_pool_pages(val);
+	return count;
+}
+
 static struct kobj_attribute pages_compressed_attr =
 	__ATTR(pages_compressed, 0444, pages_compressed_show, NULL);
 static struct kobj_attribute pages_decompressed_attr =
@@ -246,6 +354,24 @@ static struct kobj_attribute bench_serial_ns_attr =
 	__ATTR(bench_serial_ns, 0444, bench_serial_ns_show, NULL);
 static struct kobj_attribute bench_parallel_ns_attr =
 	__ATTR(bench_parallel_ns, 0444, bench_parallel_ns_show, NULL);
+static struct kobj_attribute scanner_enabled_attr =
+	__ATTR(scanner_enabled, 0644, scanner_enabled_show, scanner_enabled_store);
+static struct kobj_attribute scanner_interval_ms_attr =
+	__ATTR(scanner_interval_ms, 0644, scanner_interval_ms_show, scanner_interval_ms_store);
+static struct kobj_attribute min_savings_pct_attr =
+	__ATTR(min_savings_pct, 0644, min_savings_pct_show, min_savings_pct_store);
+static struct kobj_attribute scanner_pages_scanned_attr =
+	__ATTR(scanner_pages_scanned, 0444, scanner_pages_scanned_show, NULL);
+static struct kobj_attribute scanner_pages_idle_attr =
+	__ATTR(scanner_pages_idle, 0444, scanner_pages_idle_show, NULL);
+static struct kobj_attribute scanner_pages_compressed_attr =
+	__ATTR(scanner_pages_compressed, 0444, scanner_pages_compressed_show, NULL);
+static struct kobj_attribute scanner_pages_skipped_attr =
+	__ATTR(scanner_pages_skipped, 0444, scanner_pages_skipped_show, NULL);
+static struct kobj_attribute hook_faults_attr =
+	__ATTR(hook_faults, 0444, hook_faults_show, NULL);
+static struct kobj_attribute max_pool_pages_attr =
+	__ATTR(max_pool_pages, 0644, max_pool_pages_show, max_pool_pages_store);
 
 static struct attribute *minimem_attrs[] = {
 	&pages_compressed_attr.attr,
@@ -266,6 +392,15 @@ static struct attribute *minimem_attrs[] = {
 	&bench_baseline_ns_attr.attr,
 	&bench_serial_ns_attr.attr,
 	&bench_parallel_ns_attr.attr,
+	&scanner_enabled_attr.attr,
+	&scanner_interval_ms_attr.attr,
+	&min_savings_pct_attr.attr,
+	&scanner_pages_scanned_attr.attr,
+	&scanner_pages_idle_attr.attr,
+	&scanner_pages_compressed_attr.attr,
+	&scanner_pages_skipped_attr.attr,
+	&hook_faults_attr.attr,
+	&max_pool_pages_attr.attr,
 	NULL,
 };
 
@@ -345,8 +480,6 @@ static ssize_t bench_write(struct file *file, const char __user *buf,
 		kfree(tmpbuf);
 
 		atomic64_set(&bench_baseline_ns, elapsed);
-		atomic64_add(elapsed, &minimem_stats.compress_ns_total);
-		atomic64_add(MINIMEM_BENCH_PAGES, &minimem_stats.compress_count);
 	} else if (strcmp(kbuf, "serial") == 0) {
 		start = ktime_get_ns();
 		for (i = 0; i < MINIMEM_BENCH_PAGES; i++) {
@@ -365,8 +498,6 @@ static ssize_t bench_write(struct file *file, const char __user *buf,
 		elapsed = ktime_get_ns() - start;
 
 		atomic64_set(&bench_serial_ns, elapsed);
-		atomic64_add(elapsed, &minimem_stats.decompress_ns_total);
-		atomic64_add(MINIMEM_BENCH_PAGES, &minimem_stats.decompress_count);
 	} else if (strcmp(kbuf, "parallel") == 0) {
 		for (i = 0; i < MINIMEM_BENCH_PAGES; i++) {
 			void *src = kmap_local_page(pages[i]);
@@ -394,8 +525,6 @@ static ssize_t bench_write(struct file *file, const char __user *buf,
 			minimem_zswap_remove(vaddrs[i]);
 
 		atomic64_set(&bench_parallel_ns, elapsed);
-		atomic64_add(elapsed, &minimem_stats.decompress_ns_total);
-		atomic64_add(MINIMEM_BENCH_PAGES, &minimem_stats.decompress_count);
 	} else {
 		for (i = 0; i < MINIMEM_BENCH_PAGES; i++)
 			__free_page(pages[i]);
@@ -454,10 +583,7 @@ static ssize_t compress_write(struct file *file, const char __user *buf,
 	ret = minimem_compress_and_store(vaddr, page);
 	put_page(page);
 
-	if (ret == MINIMEM_INCOMPRESSIBLE)
-		__free_page(page);
-	if (ret && ret != MINIMEM_INCOMPRESSIBLE)
-		__free_page(page);
+	__free_page(page);
 
 	return count;
 }
@@ -470,13 +596,13 @@ static const struct file_operations compress_fops = {
 static ssize_t stats_read(struct file *file, char __user *buf,
 			   size_t count, loff_t *ppos)
 {
-	char kbuf[768];
+	char kbuf[1024];
 	int len;
 
 	len = snprintf(kbuf, sizeof(kbuf),
 		       "pages_compressed %lld\n"
 		       "pages_decompressed %lld\n"
-		       "bytes_saved %lld\n"
+		       "bytes_saved %lu\n"
 		       "compress_count %lld\n"
 		       "decompress_count %lld\n"
 		       "compress_ns_total %lld\n"
@@ -486,11 +612,12 @@ static ssize_t stats_read(struct file *file, char __user *buf,
 		       "zswap_pages %lu\n"
 		       "zswap_bytes %lu\n"
 		       "zswap_saved %lu\n"
+		       "pool_pages %lu\n"
 		       "parallel_clusters %lld\n"
 		       "parallel_pages %lld\n",
 		       atomic64_read(&minimem_stats.pages_compressed),
 		       atomic64_read(&minimem_stats.pages_decompressed),
-		       atomic64_read(&minimem_stats.bytes_saved),
+		       minimem_zswap_bytes_saved(),
 		       atomic64_read(&minimem_stats.compress_count),
 		       atomic64_read(&minimem_stats.decompress_count),
 		       atomic64_read(&minimem_stats.compress_ns_total),
@@ -504,14 +631,91 @@ static ssize_t stats_read(struct file *file, char __user *buf,
 		       minimem_zswap_stored_pages(),
 		       minimem_zswap_total_bytes(),
 		       minimem_zswap_bytes_saved(),
+		       zs_get_total_pages(minimem_zswap_pool()),
 		       atomic64_read(&minimem_par_stats.clusters_decompressed),
 		       atomic64_read(&minimem_par_stats.pages_decompressed));
+
+	len += minimem_fault_stats_read(kbuf + len, sizeof(kbuf) - len);
 
 	return simple_read_from_buffer(buf, count, ppos, kbuf, len);
 }
 
 static const struct file_operations stats_fops = {
 	.read = stats_read,
+	.owner = THIS_MODULE,
+};
+
+static ssize_t pte_test_write(struct file *file, const char __user *buf,
+			      size_t count, loff_t *ppos)
+{
+	return minimem_pte_test_write(buf, count);
+}
+
+static const struct file_operations pte_test_fops = {
+	.write = pte_test_write,
+	.owner = THIS_MODULE,
+};
+
+/*
+ * compress_vaddr: Takes a userspace virtual address, finds the corresponding
+ * VMA and page, compresses the page, stores it in zsmalloc, and replaces
+ * the PTE with a MiniMem swap entry. On next access, the kprobe hook
+ * will intercept the fault and decompress the page.
+ *
+ * Usage: echo "0x7f0000" > /sys/kernel/debug/minimem/compress_vaddr
+ * Returns: number of bytes written on success, negative errno on failure.
+ */
+static ssize_t compress_vaddr_write(struct file *file,
+				    const char __user *buf,
+				    size_t count, loff_t *ppos)
+{
+	unsigned long vaddr;
+	char kbuf[32];
+	int ret;
+	struct mm_struct *mm;
+	struct vm_area_struct *vma;
+
+	if (count > 31)
+		return -EINVAL;
+
+	if (copy_from_user(kbuf, buf, count))
+		return -EFAULT;
+
+	kbuf[count] = '\0';
+	ret = kstrtoul(kbuf, 0, &vaddr);
+	if (ret)
+		return ret;
+
+	vaddr &= PAGE_MASK;
+
+	mm = current->mm;
+	if (!mm)
+		return -EINVAL;
+
+	mmap_read_lock(mm);
+
+	vma = find_vma(mm, vaddr);
+	if (!vma || vaddr < vma->vm_start) {
+		mmap_read_unlock(mm);
+		return -ENOENT;
+	}
+
+	ret = minimem_compress_and_replace_pte(mm, vma, vaddr);
+
+	mmap_read_unlock(mm);
+
+	if (ret == 0)
+		pr_info("minimem: compress_vaddr: compressed vaddr=0x%lx\n",
+			vaddr);
+	else if (ret != -EOPNOTSUPP)
+		pr_warn("minimem: compress_vaddr: failed for vaddr=0x%lx: %d\n",
+			vaddr, ret);
+
+	return (ret < 0 && ret != -EOPNOTSUPP) ? ret : count;
+}
+
+static const struct file_operations compress_vaddr_fops = {
+	.write = compress_vaddr_write,
 	.owner = THIS_MODULE,
 };
 
@@ -550,8 +754,48 @@ static int __init minimem_init(void)
 		return ret;
 	}
 
+	ret = minimem_fault_init();
+	if (ret) {
+		pr_err("minimem: failed to initialize fault handler\n");
+		minimem_parallel_exit();
+		minimem_zswap_exit();
+		minimem_compress_exit();
+		return ret;
+	}
+
+	ret = minimem_shrinker_init();
+	if (ret) {
+		pr_err("minimem: failed to initialize shrinker\n");
+		minimem_fault_exit();
+		minimem_parallel_exit();
+		minimem_zswap_exit();
+		minimem_compress_exit();
+		return ret;
+	}
+
+	ret = minimem_scanner_init();
+	if (ret) {
+		pr_err("minimem: failed to initialize scanner\n");
+		minimem_shrinker_exit();
+		minimem_fault_exit();
+		minimem_parallel_exit();
+		minimem_zswap_exit();
+		minimem_compress_exit();
+		return ret;
+	}
+
+	ret = minimem_hook_init();
+	if (ret) {
+		pr_warn("minimem: failed to initialize page fault hook (non-fatal)\n");
+		/* Hook is non-fatal — module still works without transparent faults */
+	}
+
 	minimem_kobj = kobject_create_and_add("minimem", kernel_kobj);
 	if (!minimem_kobj) {
+		minimem_hook_exit();
+		minimem_scanner_exit();
+		minimem_shrinker_exit();
+		minimem_fault_exit();
 		minimem_parallel_exit();
 		minimem_zswap_exit();
 		minimem_compress_exit();
@@ -561,6 +805,10 @@ static int __init minimem_init(void)
 	ret = sysfs_create_group(minimem_kobj, &minimem_attr_group);
 	if (ret) {
 		kobject_put(minimem_kobj);
+		minimem_hook_exit();
+		minimem_scanner_exit();
+		minimem_shrinker_exit();
+		minimem_fault_exit();
 		minimem_parallel_exit();
 		minimem_zswap_exit();
 		minimem_compress_exit();
@@ -575,11 +823,16 @@ static int __init minimem_init(void)
 				    NULL, &bench_fops);
 		debugfs_create_file("stats", 0444, minimem_debugfs_dir,
 				    NULL, &stats_fops);
+		debugfs_create_file("pte_test", 0200, minimem_debugfs_dir,
+				    NULL, &pte_test_fops);
+		debugfs_create_file("compress_vaddr", 0200, minimem_debugfs_dir,
+				    NULL, &compress_vaddr_fops);
 	}
 
-	pr_info("minimem: transparent memory compression loaded (v0.3.0)\n");
+	pr_info("minimem: transparent memory compression loaded (v" MINIMEM_VERSION_STR ")\n");
 	pr_info("minimem: algorithms: same_page, BDI, WKdm, WKdm-64, block_class, LZ4, delta\n");
-	pr_info("minimem: debugfs at /sys/kernel/debug/minimem/\n");
+	pr_info("minimem: PTE markers, shrinker, idle scanner\n");
+	pr_info("minimem: sysfs at /sys/kernel/minimem/, debugfs at /sys/kernel/debug/minimem/\n");
 	return 0;
 }
 
@@ -589,6 +842,10 @@ static void __exit minimem_exit(void)
 	sysfs_remove_group(minimem_kobj, &minimem_attr_group);
 	kobject_put(minimem_kobj);
 
+	minimem_hook_exit();
+	minimem_scanner_exit();
+	minimem_shrinker_exit();
+	minimem_fault_exit();
 	minimem_parallel_exit();
 	minimem_zswap_exit();
 	minimem_compress_exit();

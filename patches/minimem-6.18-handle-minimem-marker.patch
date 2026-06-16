@@ -1,0 +1,90 @@
+From: MiniMem Project <minimem@noreply.github.com>
+Subject: [PATCH] mm/memory: handle PTE_MARKER_MINIMEM in handle_pte_marker()
+
+This patch adds support for MiniMem compressed page markers in the
+kernel's page fault handler. When a process accesses a page that has
+been compressed by MiniMem and replaced with a PTE marker, the fault
+handler intercepts the marker, decompresses the page, and installs
+a present PTE — transparently to the application.
+
+Without this patch, MiniMem PTE markers fall through to the "unknown
+marker" case in handle_pte_marker() and return VM_FAULT_SIGBUS.
+
+The patch uses a function pointer (minimem_fault_handler) that is
+registered by the MiniMem module at load time. This allows MiniMem
+to remain a loadable kernel module while integrating cleanly with
+the page fault handler.
+
+Signed-off-by: MiniMem Project <minimem@noreply.github.com>
+---
+ include/linux/minimem.h | 28 ++++++++++++++++++++++++++++
+ mm/memory.c             | 14 ++++++++++++++
+ 2 files changed, 42 insertions(+)
+
+diff --git a/include/linux/minimem.h b/include/linux/minimem.h
+new file mode 100644
+index 000000000000..123456789abc
+--- /dev/null
++++ b/include/linux/minimem.h
+@@ -0,0 +1,28 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * minimem.h — Kernel interface for MiniMem transparent memory compression
++ *
++ * Declares the PTE marker bit and fault handler registration API used by
++ * the MiniMem kernel module and the page fault handler.
++ */
++
++#ifndef _LINUX_MINIMEM_H
++#define _LINUX_MINIMEM_H
++
++#include <linux/mm.h>
++#include <linux/mm_types.h>
++
++/* PTE marker bit for MiniMem compressed pages (bits 0-2 are uffd/wp/poison/guard) */
++#define PTE_MARKER_MINIMEM	BIT(3)
++
++#ifdef CONFIG_MINIMEM
++/*
++ * Fault handler registered by the MiniMem module.
++ * Called from handle_pte_marker() when a PTE_MARKER_MINIMEM fault is detected.
++ * Returns VM_FAULT_NOPAGE on success (page installed in PTE),
++ * or a VM_FAULT_* error code on failure.
++ */
++extern vm_fault_t (*minimem_fault_handler)(struct vm_fault *vmf);
++#else
++#define minimem_fault_handler NULL
++#endif
++
++#endif /* _LINUX_MINIMEM_H */
+diff --git a/mm/memory.c b/mm/memory.c
+index abcdef123456..789abcdef123 100644
+--- a/mm/memory.c
++++ b/mm/memory.c
+@@ -4585,6 +4585,7 @@ static vm_fault_t handle_pte_marker(struct vm_fault *vmf)
+ {
+ 	const softleaf_t entry = softleaf_from_pte(vmf->orig_pte);
+ 	const pte_marker marker = softleaf_to_marker(entry);
++	vm_fault_t ret;
+ 
+ 	/*
+ 	 * PTE markers should never be empty.  If anything weird happened,
+@@ -4601,6 +4602,19 @@ static vm_fault_t handle_pte_marker(struct vm_fault *vmf)
+ 	if (softleaf_is_uffd_wp_marker(entry))
+ 		return pte_marker_handle_uffd_wp(vmf);
+ 
++#ifdef CONFIG_MINIMEM
++	/* Handle MiniMem compressed page markers */
++	if (marker & PTE_MARKER_MINIMEM) {
++		if (minimem_fault_handler) {
++			ret = minimem_fault_handler(vmf);
++			return ret;
++		}
++		pr_warn_once("minimem: fault on MINIMEM marker but handler not registered\n");
++		return VM_FAULT_SIGBUS;
++	}
++#endif
++
+ 	/* This is an unknown pte marker */
+ 	return VM_FAULT_SIGBUS;
+ }
