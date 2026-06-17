@@ -17,7 +17,7 @@
 
 set -e
 
-VERSION="0.7.0"
+VERSION="0.8.0"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="/tmp/minimem-fedora-build"
 SOURCE_URL="https://github.com/marcel-b-roodt/MiniMem/archive/refs/tags/v${VERSION}.tar.gz"

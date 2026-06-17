@@ -1,13 +1,13 @@
 Format: 3.0 (quilt)
 Source: minimem
-Version: 0.7.0-1
+Version: 0.8.0-1
 Maintainer: Marcel Broodt <minimem@noreply.github.com>
 Section: utils
 Priority: optional
 Build-Depends: debhelper-compat (= 13), meson, pkg-config, gcc, g++, libzstd-dev, dkms
 Standards-Version: 4.7.0
 Homepage: https://github.com/marcel-b-roodt/MiniMem
-DEBTRANSFORM-TAR: minimem-0.7.0.tar.gz
+DEBTRANSFORM-TAR: minimem-0.8.0.tar.gz
 
 Package: libminimem0
 Architecture: any
@@ -37,7 +37,7 @@ Description: MiniMem kernel module (DKMS)
 
 Package: minimem-dkms-systemd
 Architecture: all
-Depends: minimem-dkms (= 0.7.0-1), systemd, ${misc:Depends}
+Depends: minimem-dkms (= 0.8.0-1), systemd, ${misc:Depends}
 Description: MiniMem auto-load and auto-enable systemd units
  Systemd units to automatically load the minimem kernel module
  and enable the scanner on boot.

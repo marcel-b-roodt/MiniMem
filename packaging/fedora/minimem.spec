@@ -1,5 +1,5 @@
 Name:           minimem
-Version:        0.7.0
+Version:        0.8.0
 Release:        1%{?dist}
 Summary:        Transparent lossless memory compression library
 
@@ -188,6 +188,13 @@ dkms remove minimem/%{version} --all 2>/dev/null || true
 %{_modulesloaddir}/minimem.conf
 
 %changelog
+* Fri Jun 20 2026 Marcel Broodt <minimem@noreply.github.com> - 0.8.0-1
+- Add per-process compression statistics
+- Add local install/uninstall script
+- Add AUR minimem-dkms-systemd package
+- Add recovery documentation
+- Shellcheck lint fixes across test scripts
+
 * Wed Jun 18 2026 Marcel Broodt <minimem@noreply.github.com> - 0.7.0-1
 - Add parallel decompression auto-detect and sysfs toggle
 - Add systemd units for auto-load and auto-enable

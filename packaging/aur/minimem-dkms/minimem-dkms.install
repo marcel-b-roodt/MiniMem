@@ -15,7 +15,7 @@ post_install() {
     echo "  echo 1 | sudo tee /sys/kernel/minimem/scanner_enabled"
     echo ""
     echo "To enable scanner sweep (requires kernel patches + reboot):"
-    echo "  sudo /usr/src/minimem-0.7.0/install.sh $(uname -r)"
+    echo "  sudo /usr/src/minimem-0.8.0/install.sh $(uname -r)"
     echo "  # Then rebuild and reboot your kernel"
     echo ""
     echo "Check patch status:  cat /sys/kernel/minimem/kernel_patches"
@@ -40,7 +40,7 @@ post_remove() {
     echo ""
     echo "MiniMem DKMS module removed."
     echo "If you applied kernel patches, reverse them:"
-    echo "  sudo /usr/src/minimem-0.7.0/uninstall.sh $(uname -r)"
+    echo "  sudo /usr/src/minimem-0.8.0/uninstall.sh $(uname -r)"
     echo "Then rebuild and reboot your kernel."
     echo ""
 }

@@ -1,6 +1,6 @@
 # Maintainer: Marcel Broodt <minimem@noreply.github.com>
 pkgname=minimem
-pkgver=0.7.0
+pkgver=0.8.0
 pkgrel=1
 pkgdesc="Transparent lossless memory compression library"
 arch=('x86_64' 'aarch64')

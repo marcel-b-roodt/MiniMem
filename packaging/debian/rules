@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 
 DKMS_NAME := minimem
-DKMS_VERSION := 0.7.0
+DKMS_VERSION := 0.8.0
 DKMS_DESTDIR := debian/tmp/usr/src/$(DKMS_NAME)-$(DKMS_VERSION)
 SYSTEMD_DIR := debian/tmp/lib/systemd/system
 MODLOAD_DIR := debian/tmp/lib/modules-load.d

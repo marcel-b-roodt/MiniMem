@@ -9,7 +9,7 @@
 
 set -e
 
-VERSION="0.7.0"
+VERSION="0.8.0"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OBS_USER="${OBS_USER:-}"
 

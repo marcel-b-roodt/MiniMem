@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-VERSION="0.7.0"
+VERSION="0.8.0"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 AUR_SSH_USER="${AUR_SSH_USER:-aur}"
 AUR_SSH="${AUR_SSH_USER}@aur.archlinux.org"
