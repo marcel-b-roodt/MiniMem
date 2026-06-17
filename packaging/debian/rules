@@ -2,7 +2,7 @@
 
 DKMS_NAME := minimem
 DKMS_VERSION := 0.6.0
-DKMS_DESTDIR := debian/minimem-dkms/usr/src/$(DKMS_NAME)-$(DKMS_VERSION)
+DKMS_DESTDIR := debian/tmp/usr/src/$(DKMS_NAME)-$(DKMS_VERSION)
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
