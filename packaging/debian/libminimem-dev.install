@@ -1,0 +1,4 @@
+usr/include/minimem/*
+usr/lib/*/libminimem.so
+usr/lib/*/libminimem_static.a
+usr/lib/*/pkgconfig/minimem.pc

@@ -117,6 +117,9 @@ PRJ_XML
         cp "$PACKAGING_DIR/debian/rules" "$WORK_DIR/minimem/debian.rules"
         cp "$PACKAGING_DIR/debian/changelog" "$WORK_DIR/minimem/debian.changelog"
         cp "$PACKAGING_DIR/debian/copyright" "$WORK_DIR/minimem/debian.copyright"
+        cp "$PACKAGING_DIR/debian/libminimem0.install" "$WORK_DIR/minimem/debian.libminimem0.install"
+        cp "$PACKAGING_DIR/debian/libminimem-dev.install" "$WORK_DIR/minimem/debian.libminimem-dev.install"
+        cp "$PACKAGING_DIR/debian/minimem-dkms.install" "$WORK_DIR/minimem/debian.minimem-dkms.install"
         cp "$PACKAGING_DIR/debian/minimem.dsc" "$WORK_DIR/minimem/"
         cp "$PACKAGING_DIR/obs/_service" "$WORK_DIR/minimem/"
 
