@@ -363,11 +363,11 @@ INITEOF
     done
 
     # Copy kernel modules we need (lz4_compress)
-    local kmod_dir="/lib/modules/$(uname -r)"
+    local kmod_dir
+    kmod_dir="/lib/modules/$(uname -r)"
     mkdir -p "$root/lib/modules/$(uname -r)"
 
     # lz4_compress may be built-in or a module
-    local kmod_dir="/lib/modules/$(uname -r)"
     mkdir -p "$root/lib/modules/$(uname -r)"
 
     if ls "$kmod_dir/kernel/lib/lz4/"*.ko.zst 2>/dev/null; then
@@ -490,18 +490,27 @@ run_vm_test() {
     echo "  min_savings_pct:   $(grep 'min_savings_pct' "$output_file" | tail -1 | awk '{print $NF}' || echo 'N/A')"
     echo "  scanner_enabled:   $(grep 'scanner_enabled' "$output_file" | tail -1 | awk '{print $NF}' || echo 'N/A')"
     echo ""
-    local kselftest_pass=$(grep '^PASS: ' "$output_file" 2>/dev/null | wc -l)
-    local kselftest_fail=$(grep '^FAIL: ' "$output_file" 2>/dev/null | wc -l)
-    local kselftest_skip=$(grep '^SKIP: ' "$output_file" 2>/dev/null | wc -l)
+    local kselftest_pass
+    kselftest_pass=$(grep '^PASS: ' "$output_file" 2>/dev/null | wc -l)
+    local kselftest_fail
+    kselftest_fail=$(grep '^FAIL: ' "$output_file" 2>/dev/null | wc -l)
+    local kselftest_skip
+    kselftest_skip=$(grep '^SKIP: ' "$output_file" 2>/dev/null | wc -l)
     echo "  kselftest PASS:    $kselftest_pass"
     echo "  kselftest FAIL:    $kselftest_fail"
     echo "  kselftest SKIP:    $kselftest_skip"
-    local e2e_pass=$(grep '^PASS: ' "$output_file" 2>/dev/null | wc -l)
-    local e2e_fail=$(grep '^FAIL: ' "$output_file" 2>/dev/null | wc -l)
-    local e2e_skip=$(grep '^SKIP: ' "$output_file" 2>/dev/null | wc -l)
-    local e2e_only_pass=$((e2e_pass - kselftest_pass))
-    local e2e_only_fail=$((e2e_fail - kselftest_fail))
-    local e2e_only_skip=$((e2e_skip - kselftest_skip))
+    local e2e_pass
+    e2e_pass=$(grep '^PASS: ' "$output_file" 2>/dev/null | wc -l)
+    local e2e_fail
+    e2e_fail=$(grep '^FAIL: ' "$output_file" 2>/dev/null | wc -l)
+    local e2e_skip
+    e2e_skip=$(grep '^SKIP: ' "$output_file" 2>/dev/null | wc -l)
+    local e2e_only_pass
+    e2e_only_pass=$((e2e_pass - kselftest_pass))
+    local e2e_only_fail
+    e2e_only_fail=$((e2e_fail - kselftest_fail))
+    local e2e_only_skip
+    e2e_only_skip=$((e2e_skip - kselftest_skip))
     echo "  e2e PASS:          ${e2e_only_pass:-0}"
     echo "  e2e FAIL:          ${e2e_only_fail:-0}"
     echo "  e2e SKIP:          ${e2e_only_skip:-0}"

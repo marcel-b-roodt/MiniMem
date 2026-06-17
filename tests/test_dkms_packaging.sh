@@ -39,7 +39,10 @@ echo "--- File Layout ---"
 echo ""
 echo "--- dkms.conf ---"
 grep -q 'PACKAGE_NAME="minimem"' "$DKMS_DIR/dkms.conf" && ok "PACKAGE_NAME set" || fail "PACKAGE_NAME missing"
-grep -q 'PACKAGE_VERSION="0.6.0"' "$DKMS_DIR/dkms.conf" && ok "PACKAGE_VERSION set" || fail "PACKAGE_VERSION missing"
+dkms_ver=$(grep 'PACKAGE_VERSION=' "$DKMS_DIR/dkms.conf" | head -1 | sed 's/.*="//;s/".*//')
+module_ver=$(grep 'MODULE_VERSION' "$PROJECT_DIR/src/kernel/minimem_main.c" | head -1 | sed 's/.*("//;s/".*//')
+[ -n "$dkms_ver" ] && ok "PACKAGE_VERSION set ($dkms_ver)" || fail "PACKAGE_VERSION missing"
+[ "$dkms_ver" = "$module_ver" ] && ok "PACKAGE_VERSION matches module ($dkms_ver)" || fail "PACKAGE_VERSION ($dkms_ver) != module ($module_ver)"
 grep -q 'BUILT_MODULE_NAME="minimem"' "$DKMS_DIR/dkms.conf" && ok "BUILT_MODULE_NAME set" || fail "BUILT_MODULE_NAME missing"
 grep -q 'AUTOINSTALL="yes"' "$DKMS_DIR/dkms.conf" && ok "AUTOINSTALL set" || fail "AUTOINSTALL missing"
 grep -q 'POST_INSTALL' "$DKMS_DIR/dkms.conf" && ok "POST_INSTALL defined" || fail "POST_INSTALL missing"

@@ -201,12 +201,12 @@ static void test_tier_and_fmt_names(void)
 	assert(strcmp(minimem_vram_tier_name(MINIMEM_VRAM_WARM), "WARM") == 0);
 	assert(strcmp(minimem_vram_tier_name(MINIMEM_VRAM_COLD), "COLD") == 0);
 	assert(strcmp(minimem_vram_tier_name(MINIMEM_VRAM_FROZEN), "FROZEN") == 0);
-	assert(strcmp(minimem_vram_tier_name(99), "UNKNOWN") == 0);
+	assert(strcmp(minimem_vram_tier_name((enum minimem_vram_tier)99), "UNKNOWN") == 0);
 
 	assert(strcmp(minimem_vram_fmt_name(MINIMEM_VRAM_FMT_FP16), "FP16") == 0);
 	assert(strcmp(minimem_vram_fmt_name(MINIMEM_VRAM_FMT_BF16), "BF16") == 0);
 	assert(strcmp(minimem_vram_fmt_name(MINIMEM_VRAM_FMT_INT8), "INT8") == 0);
-	assert(strcmp(minimem_vram_fmt_name(99), "UNKNOWN") == 0);
+	assert(strcmp(minimem_vram_fmt_name((enum minimem_vram_weight_format)99), "UNKNOWN") == 0);
 	printf("  PASS: tier and format names\n");
 }
 
@@ -233,7 +233,7 @@ static void test_ctx_create_zero_capacity(void)
 	struct minimem_vram_ctx *ctx = minimem_vram_ctx_create(0);
 	assert(ctx != NULL);
 	assert(ctx->n_bufs == 0);
-	assert(ctx->cap == 0);
+	assert(ctx->cap > 0);
 
 	uint8_t buf[4096];
 	memset(buf, 0x55, 4096);
@@ -241,10 +241,9 @@ static void test_ctx_create_zero_capacity(void)
 					MINIMEM_VRAM_FMT_INT8, false);
 	assert(ret == 0);
 	assert(ctx->n_bufs == 1);
-	assert(ctx->cap >= 1);
 
 	minimem_vram_ctx_destroy(ctx);
-	printf("  PASS: ctx_create zero capacity auto-grows\n");
+	printf("  PASS: ctx_create zero capacity defaults to positive cap\n");
 }
 
 static void test_find_buf(void)
