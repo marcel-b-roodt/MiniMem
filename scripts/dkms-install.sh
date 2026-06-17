@@ -1,7 +1,7 @@
 #!/bin/bash
 # scripts/dkms-install.sh — Install MiniMem as a DKMS module
 #
-# This copies the module source into /usr/src/minimem-0.6.0/,
+# This copies the module source into /usr/src/minimem-x.x.x/,
 # registers it with DKMS, builds it for the current kernel,
 # and optionally applies kernel patches for full functionality.
 #
