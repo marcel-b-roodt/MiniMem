@@ -229,17 +229,82 @@ Every release must update the version in **all** of these locations. The `script
 
 ### Release workflow
 
-1. **Version bump:** Run `./scripts/release.sh release X.Y.Z` — this creates a release branch, bumps all versions, commits, tags, merges back to main, and pushes.
-2. **Verify builds:** Check that `ninja -C build` and `./build-kmod.sh build` both succeed with the new version.
-3. **Run tests:** `ninja -C build test` (userspace) and `./vm-test-minimem.sh` (kernel).
-4. **GitHub release:** The script creates a GitHub release via `gh` if available, otherwise create manually.
-5. **AUR publish:** `AUR_SSH_USER=yourname ./scripts/publish-aur.sh --update`
-6. **OBS publish:** `OBS_USER=yourname ./scripts/publish-obs.sh --update`
-7. **Post-release:** Update `docs/feature-registry.md`, `docs/roadmap.md`, and `NearTermTodos.txt` to reflect the released version.
+The entire release process is handled by `./scripts/release.sh`. One command does everything:
+
+```bash
+./scripts/release.sh release X.Y.Z
+```
+
+This script:
+1. Validates the working tree is clean and the version is semver
+2. Creates a `release/X.Y.Z` branch from main
+3. Bumps the version across **all** files in the checklist above
+4. Builds and verifies both userspace and kernel module
+5. Commits the version bump
+6. Creates a signed git tag `vX.Y.Z`
+7. Merges the release branch back to main
+8. Pushes main + tag to GitHub
+9. Creates a GitHub release (if `gh` CLI is available)
+10. Publishes to AUR and OBS (if credentials are set)
+
+After the script finishes, verify the builds manually:
+
+```bash
+ninja -C build              # userspace library
+./build-kmod.sh build       # kernel module
+ninja -C build test         # userspace tests (requires Criterion)
+./vm-test-minimem.sh        # kernel tests in QEMU VM
+```
+
+Then publish to package repositories:
+
+```bash
+# AUR (when registration reopens)
+AUR_SSH_USER=yourname ./scripts/publish-aur.sh --update
+
+# OBS (Fedora, Debian, Ubuntu, openSUSE)
+OBS_USER=yourname ./scripts/publish-obs.sh --update
+
+# Or publish everywhere at once:
+./scripts/publish-all.sh
+```
+
+After publishing, update the documentation:
+
+- `docs/feature-registry.md` — mark released features as ✅
+- `docs/roadmap.md` — update stage status
+- `NearTermTodos.txt` — remove completed items
 
 ### Hotfix workflow
 
 For patch releases: `./scripts/release.sh hotfix X.Y.Z` — creates a hotfix branch from the latest tag, applies fixes, bumps, tags, merges, and publishes.
+
+### Local testing before release
+
+Before running the release script, test locally:
+
+```bash
+# Build everything
+ninja -C build
+./build-kmod.sh build
+
+# Install locally on Arch (includes DKMS + systemd + library)
+sudo ./scripts/local-install.sh
+
+# Check status
+sudo ./scripts/local-install.sh --status
+
+# Run the stats tool
+./scripts/minimem-stats
+./scripts/minimem-stats --summary
+sudo ./scripts/minimem-stats --per-process
+
+# Run kernel tests
+./vm-test-minimem.sh
+
+# Uninstall when done
+sudo ./scripts/local-install.sh --uninstall
+```
 
 ---
 
