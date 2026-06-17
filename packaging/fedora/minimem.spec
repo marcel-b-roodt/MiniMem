@@ -9,7 +9,11 @@ Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz#/minimem-%{version}.
 Source1:        minimem-rpmlintrc
 
 BuildRequires:  meson
+%if 0%{?fedora} || 0%{?rhel}
 BuildRequires:  pkgconf-pkg-config
+%else
+BuildRequires:  pkg-config
+%endif
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  libzstd-devel
@@ -45,7 +49,11 @@ Summary:        MiniMem kernel module (DKMS)
 License:        GPL-2.0-only
 Requires:       dkms
 Requires:       gcc
+%if 0%{?suse_version}
+Requires:       kernel-default-devel
+%else
 Requires:       kernel-devel
+%endif
 Requires:       systemd
 BuildArch:      noarch
 ExclusiveArch:  x86_64 aarch64
@@ -60,11 +68,21 @@ but require manual application and kernel rebuild.
 %autosetup -n MiniMem-%{version}
 
 %build
+%if 0%{?fedora} || 0%{?rhel}
 %meson -Dtests=false
 %meson_build
+%else
+mkdir -p build
+meson setup build --buildtype=plain -Dtests=false
+ninja -C build -j%{_smp_mflags}
+%endif
 
 %install
+%if 0%{?fedora} || 0%{?rhel}
 %meson_install
+%else
+DESTDIR=%{buildroot} ninja -C build install
+%endif
 
 DKMS_DIR=%{buildroot}/usr/src/minimem-%{version}
 mkdir -p $DKMS_DIR/lib/compressors $DKMS_DIR/include $DKMS_DIR/patches
@@ -160,14 +178,26 @@ install -m 644 systemd/modules-load.d/minimem.conf %{buildroot}%{_modulesloaddir
 dkms add minimem/%{version} 2>/dev/null || true
 dkms build minimem/%{version} -k $(uname -r) 2>/dev/null || true
 dkms install minimem/%{version} -k $(uname -r) 2>/dev/null || true
+%if 0%{?fedora} || 0%{?rhel}
 %systemd_post minimem-load.service minimem.service
+%else
+%service_add_post minimem-load.service minimem.service
+%endif
 
 %preun -n minimem-dkms
+%if 0%{?fedora} || 0%{?rhel}
 %systemd_preun minimem.service minimem-load.service
+%else
+%service_del_preun minimem.service minimem-load.service
+%endif
 dkms remove minimem/%{version} --all 2>/dev/null || true
 
 %postun -n minimem-dkms
+%if 0%{?fedora} || 0%{?rhel}
 %systemd_postun minimem-load.service minimem.service
+%else
+%service_del_postun minimem-load.service minimem.service
+%endif
 
 %files -n libminimem0
 %license LICENSE
