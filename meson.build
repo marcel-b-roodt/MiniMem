@@ -24,33 +24,39 @@ minimem_lib_sources = [
     'src/lib/compressors/bdi.c',
     'src/lib/compressors/wkdm.c',
     'src/lib/compressors/lz4_wrap.c',
-    'src/lib/compressors/lzsse8.c',
     'src/lib/compressors/zstd_dict.c',
     'src/lib/compressors/delta.c',
     'src/lib/compressors/wkdm64.c',
     'src/lib/compressors/block_class.c',
     'src/lib/compressors/ai_weights.c',
+    'src/lib/compressors/lzsse8.c',
     'src/lib/advisor.c',
     'src/lib/vendor/lz4/lz4.c',
     'src/lib/vendor/lz4/lz4hc.c',
 ]
 
-lzsse8_cpp = files('src/lib/vendor/lzsse8/lzsse8.cpp')
-
 lzsse8_cpp_args = ['-Wno-unused-but-set-variable', '-Wno-sign-compare', '-Wno-unused-variable', '-Wno-unknown-pragmas']
-
-if host_machine.cpu_family() == 'x86' or host_machine.cpu_family() == 'x86_64'
-    lzsse8_cpp_args += ['-msse4.1']
-endif
 
 minimem_inc = include_directories('src')
 
-lzsse8_lib = static_library('lzsse8_wrap',
-    sources : lzsse8_cpp,
-    include_directories : [minimem_inc],
-    cpp_args : lzsse8_cpp_args,
-    install : false,
-)
+is_x86 = host_machine.cpu_family() == 'x86' or host_machine.cpu_family() == 'x86_64'
+
+if is_x86
+    lzsse8_cpp_args += ['-msse4.1']
+    lzsse8_lib = static_library('lzsse8_wrap',
+        sources : files('src/lib/vendor/lzsse8/lzsse8.cpp'),
+        include_directories : [minimem_inc],
+        cpp_args : lzsse8_cpp_args,
+        install : false,
+    )
+    shared_lib_link = [lzsse8_lib]
+    shared_lib_sources = minimem_lib_sources + files('src/lib/vendor/lzsse8/lzsse8.cpp')
+    shared_lib_cpp = lzsse8_cpp_args
+else
+    shared_lib_link = []
+    shared_lib_sources = minimem_lib_sources
+    shared_lib_cpp = []
+endif
 
 minimem_lib = static_library('minimem_static',
     sources : minimem_lib_sources,
@@ -58,17 +64,18 @@ minimem_lib = static_library('minimem_static',
     c_args : ['-DMINIMEM_BUILD'],
     dependencies : [zstd_dep],
     install : true,
-    link_with : lzsse8_lib,
+    link_with : is_x86 ? [lzsse8_lib] : [],
 )
 
 minimem_shared = shared_library('minimem',
-    sources : minimem_lib_sources + lzsse8_cpp,
+    sources : shared_lib_sources,
     include_directories : [minimem_inc],
     c_args : ['-DMINIMEM_BUILD'],
-    cpp_args : lzsse8_cpp_args,
+    cpp_args : shared_lib_cpp,
     dependencies : [zstd_dep],
     version : minimem_version,
     install : true,
+    link_with : shared_lib_link,
 )
 
 minimem_dep_static = declare_dependency(
@@ -133,11 +140,10 @@ vram_test_exe = executable('minimem_vram_test',
         'src/lib/advisor.c',
         'src/lib/vendor/lz4/lz4.c',
         'src/lib/vendor/lz4/lz4hc.c',
-        'src/lib/vendor/lzsse8/lzsse8.cpp',
-    ],
+    ] + (is_x86 ? files('src/lib/vendor/lzsse8/lzsse8.cpp') : []),
     include_directories : [minimem_inc, include_directories('src'), include_directories('tests')],
     c_args : ['-DMINIMEM_BUILD', '-D_GNU_SOURCE'],
-    cpp_args : lzsse8_cpp_args,
+    cpp_args : is_x86 ? lzsse8_cpp_args : [],
     dependencies : [zstd_dep],
     install : false,
 )
