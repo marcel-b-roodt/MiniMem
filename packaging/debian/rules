@@ -2,6 +2,7 @@
 
 DKMS_NAME := minimem
 DKMS_VERSION := 0.6.0
+DKMS_DESTDIR := debian/minimem-dkms/usr/src/$(DKMS_NAME)-$(DKMS_VERSION)
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
@@ -17,29 +18,28 @@ override_dh_auto_build:
 override_dh_auto_install:
 	dh_auto_install
 
-	DKMS_DIR=debian/minimem-dkms/usr/src/$(DKMS_NAME)-$(DKMS_VERSION)
-	mkdir -p $${DKMS_DIR}/lib/compressors $${DKMS_DIR}/include $${DKMS_DIR}/patches
+	mkdir -p $(DKMS_DESTDIR)/lib/compressors $(DKMS_DESTDIR)/include $(DKMS_DESTDIR)/patches
 
-	install -m 644 dkms/dkms.conf $${DKMS_DIR}/
-	install -m 644 dkms/Makefile $${DKMS_DIR}/
-	install -m 755 dkms/install.sh $${DKMS_DIR}/
-	install -m 755 dkms/uninstall.sh $${DKMS_DIR}/
+	install -m 644 dkms/dkms.conf $(DKMS_DESTDIR)/
+	install -m 644 dkms/Makefile $(DKMS_DESTDIR)/
+	install -m 755 dkms/install.sh $(DKMS_DESTDIR)/
+	install -m 755 dkms/uninstall.sh $(DKMS_DESTDIR)/
 
-	install -m 644 src/kernel/*.c $${DKMS_DIR}/
-	install -m 644 src/kernel/*.h $${DKMS_DIR}/
+	install -m 644 src/kernel/*.c $(DKMS_DESTDIR)/
+	install -m 644 src/kernel/*.h $(DKMS_DESTDIR)/
 
-	install -m 644 src/lib/minimem.h $${DKMS_DIR}/lib/
-	install -m 644 src/lib/advisor.c $${DKMS_DIR}/lib/
-	install -m 644 src/lib/advisor.h $${DKMS_DIR}/lib/
+	install -m 644 src/lib/minimem.h $(DKMS_DESTDIR)/lib/
+	install -m 644 src/lib/advisor.c $(DKMS_DESTDIR)/lib/
+	install -m 644 src/lib/advisor.h $(DKMS_DESTDIR)/lib/
 
 	for comp in same_page bdi wkdm wkdm64 block_class lz4_wrap delta; do \
-		install -m 644 src/lib/compressors/$$comp.* $${DKMS_DIR}/lib/compressors/; \
+		install -m 644 src/lib/compressors/$$comp.* $(DKMS_DESTDIR)/lib/compressors/; \
 	done
 
-	install -m 644 patches/minimem-*.patch $${DKMS_DIR}/patches/ || true
+	install -m 644 patches/minimem-*.patch $(DKMS_DESTDIR)/patches/ || true
 
 	for stub in string.h stdbool.h stdint.h stddef.h stdlib.h limits.h; do \
-		install -m 644 /dev/null $${DKMS_DIR}/include/$$stub; \
+		install -m 644 /dev/null $(DKMS_DESTDIR)/include/$$stub; \
 	done
 
 override_dh_dkms:
