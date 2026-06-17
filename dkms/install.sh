@@ -42,7 +42,7 @@ KMIN=$(echo "$KVER" | cut -d. -f2)
 APPLIED=0
 FAILED=0
 
-for patchfile in "$PATCHDIR"/minimem-${KMAJ}.${KMIN}-*.patch "$PATCHDIR"/minimem-*.patch; do
+for patchfile in "$PATCHDIR"/minimem-"${KMAJ}"."${KMIN}"-*.patch "$PATCHDIR"/minimem-*.patch; do
     [ -f "$patchfile" ] || continue
     case "$patchfile" in
         *"/minimem-${KMAJ}.${KMIN}-"*) ;;

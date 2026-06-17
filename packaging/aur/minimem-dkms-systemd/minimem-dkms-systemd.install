@@ -1,0 +1,28 @@
+post_install() {
+    if [ -d /run/systemd/system ]; then
+        systemctl enable minimem-load.service minimem.service 2>/dev/null || true
+        systemctl start minimem-load.service 2>/dev/null || true
+        systemctl start minimem.service 2>/dev/null || true
+    fi
+    echo ""
+    echo "MiniMem systemd units installed and enabled."
+    echo "The module will auto-load and the scanner will auto-enable on boot."
+    echo ""
+    echo "To start now without reboot:"
+    echo "  sudo systemctl start minimem-load.service"
+    echo "  sudo systemctl start minimem.service"
+    echo ""
+    echo "Check status:  systemctl status minimem-load.service minimem.service"
+    echo "Module stats:  cat /sys/kernel/minimem/*"
+}
+
+post_upgrade() {
+    post_install
+}
+
+pre_remove() {
+    if [ -d /run/systemd/system ]; then
+        systemctl stop minimem.service minimem-load.service 2>/dev/null || true
+        systemctl disable minimem.service minimem-load.service 2>/dev/null || true
+    fi
+}

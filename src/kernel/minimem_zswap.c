@@ -26,6 +26,7 @@
 #include "minimem_compress.h"
 #include "minimem_map.h"
 #include "minimem_scanner.h"
+#include "minimem_proc_stats.h"
 
 static struct zs_pool *minimem_pool;
 static struct minimem_map minimem_map;
@@ -158,6 +159,9 @@ int minimem_compress_and_store(unsigned long vaddr, struct page *page)
 	atomic64_add(res.original_size - res.compressed_size,
 		     &mm_bytes_saved);
 
+	minimem_proc_stats_compress(res.original_size - res.compressed_size,
+				    res.compress_ns);
+
 	return MINIMEM_OK;
 }
 
@@ -210,6 +214,8 @@ int minimem_decompress_and_restore(unsigned long vaddr, struct page *page)
 
 	if (ret != MINIMEM_OK)
 		return ret;
+
+	minimem_proc_stats_decompress(dres.decompress_ns);
 
 	minimem_map_remove(&minimem_map, vaddr);
 	zs_free(minimem_pool, handle);

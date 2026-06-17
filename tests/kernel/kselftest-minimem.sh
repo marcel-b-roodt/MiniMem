@@ -39,8 +39,7 @@ else
     insmod /lib/modules/$(uname -r)/kernel/lib/lz4/lz4_compress.ko 2>/dev/null || \
         modprobe lz4_compress 2>/dev/null || true
 
-    insmod /minimem.ko
-    if [ $? -eq 0 ] && [ -d "$SYSDIR" ]; then
+    if insmod /minimem.ko 2>/dev/null && [ -d "$SYSDIR" ]; then
         pass "module loaded successfully"
     else
         fail "module load failed"
@@ -61,7 +60,8 @@ zswap_pages zswap_bytes zswap_saved pool_pages
 parallel_clusters parallel_pages
 scanner_enabled scanner_interval_ms min_savings_pct
 scanner_pages_scanned scanner_pages_idle scanner_pages_compressed scanner_pages_skipped
-hook_faults kernel_patches max_pool_pages parallel_mode"
+hook_faults kernel_patches max_pool_pages parallel_mode
+per_process_stats per_process_top_n stats_summary"
 
 for attr in $REQUIRED_ATTRS; do
     if [ -f "$SYSDIR/$attr" ]; then
@@ -95,22 +95,19 @@ fi
 echo ""
 echo "=== Test 4: PTE marker roundtrip ==="
 if [ -w "$DEBUGDIR/pte_test" ]; then
-    echo "encode 42" > "$DEBUGDIR/pte_test" 2>/dev/null
-    if [ $? -eq 0 ]; then
+    if echo "encode 42" > "$DEBUGDIR/pte_test" 2>/dev/null; then
         pass "PTE encode succeeded"
     else
         fail "PTE encode failed"
     fi
 
-    echo "encode 0" > "$DEBUGDIR/pte_test" 2>/dev/null
-    if [ $? -eq 0 ]; then
+    if echo "encode 0" > "$DEBUGDIR/pte_test" 2>/dev/null; then
         pass "PTE encode 0 succeeded"
     else
         fail "PTE encode 0 failed"
     fi
 
-    echo "encode 1099511627775" > "$DEBUGDIR/pte_test" 2>/dev/null
-    if [ $? -eq 0 ]; then
+    if echo "encode 1099511627775" > "$DEBUGDIR/pte_test" 2>/dev/null; then
         pass "PTE encode max index succeeded"
     else
         fail "PTE encode max index failed"
@@ -125,14 +122,11 @@ fi
 echo ""
 echo "=== Test 5: Compression roundtrip ==="
 if [ -w "$DEBUGDIR/compress" ]; then
-    echo "1" > "$DEBUGDIR/compress" 2>/dev/null
-    if [ $? -eq 0 ]; then
-        pages_before=$(cat "$SYSDIR/zswap_pages" 2>/dev/null)
+    if echo "1" > "$DEBUGDIR/compress" 2>/dev/null; then
         saved_before=$(cat "$SYSDIR/zswap_saved" 2>/dev/null)
         echo "1" > "$DEBUGDIR/compress" 2>/dev/null
-        pages_after=$(cat "$SYSDIR/zswap_pages" 2>/dev/null)
         saved_after=$(cat "$SYSDIR/zswap_saved" 2>/dev/null)
-        if [ "$saved_after" -gt "$saved_before" ]; then
+        if [ "$saved_after" -gt "$saved_before" ] 2>/dev/null; then
             pass "compression saved bytes ($saved_before -> $saved_after)"
         else
             fail "compression did not save bytes"
@@ -152,7 +146,7 @@ echo "=== Test 6: Benchmark ==="
 if [ -w "$DEBUGDIR/bench" ]; then
     echo "baseline" > "$DEBUGDIR/bench" 2>/dev/null
     sleep 1
-    baseline_ns=$(cat "$SYSDIR/bench_baseline_ns" 2>/dev/null | awk '{print $1}')
+    baseline_ns=$(awk '{print $1}' "$SYSDIR/bench_baseline_ns" 2>/dev/null)
     if [ "$baseline_ns" != "0" ] && [ -n "$baseline_ns" ]; then
         pass "baseline benchmark ran ($baseline_ns ns)"
     else
@@ -161,7 +155,7 @@ if [ -w "$DEBUGDIR/bench" ]; then
 
     echo "serial" > "$DEBUGDIR/bench" 2>/dev/null
     sleep 1
-    serial_ns=$(cat "$SYSDIR/bench_serial_ns" 2>/dev/null | awk '{print $1}')
+    serial_ns=$(awk '{print $1}' "$SYSDIR/bench_serial_ns" 2>/dev/null)
     if [ "$serial_ns" != "0" ] && [ -n "$serial_ns" ]; then
         pass "serial benchmark ran ($serial_ns ns)"
     else
@@ -285,12 +279,103 @@ case "$val" in
 esac
 
 # ============================================================
+# Test 7b: Per-process stats sysfs knobs
+# ============================================================
+echo ""
+echo "=== Test 7b: Per-process stats ==="
+
+# per_process_stats defaults to 0
+val=$(cat "$SYSDIR/per_process_stats" 2>/dev/null)
+if [ "$val" = "0" ]; then
+    pass "per_process_stats default is 0 (disabled)"
+else
+    fail "per_process_stats default is $val (expected 0)"
+fi
+
+# stats_summary should say disabled when off
+val=$(cat "$SYSDIR/stats_summary" 2>/dev/null)
+if echo "$val" | grep -q "disabled"; then
+    pass "stats_summary shows disabled when per_process_stats=0"
+else
+    fail "stats_summary should show disabled ($val)"
+fi
+
+# Enable per-process stats
+echo "1" > "$SYSDIR/per_process_stats" 2>/dev/null
+val=$(cat "$SYSDIR/per_process_stats" 2>/dev/null)
+if [ "$val" = "1" ]; then
+    pass "per_process_stats enabled"
+else
+    fail "per_process_stats enable failed ($val)"
+fi
+
+# per_process_top_n default
+val=$(cat "$SYSDIR/per_process_top_n" 2>/dev/null)
+if [ "$val" = "5" ]; then
+    pass "per_process_top_n default is 5"
+else
+    fail "per_process_top_n default is $val (expected 5)"
+fi
+
+# Set top_n to 10
+echo "10" > "$SYSDIR/per_process_top_n" 2>/dev/null
+val=$(cat "$SYSDIR/per_process_top_n" 2>/dev/null)
+if [ "$val" = "10" ]; then
+    pass "per_process_top_n set to 10"
+else
+    fail "per_process_top_n set to 10 failed ($val)"
+fi
+
+# Reject invalid top_n
+echo "0" > "$SYSDIR/per_process_top_n" 2>/dev/null
+val=$(cat "$SYSDIR/per_process_top_n" 2>/dev/null)
+if [ "$val" = "10" ]; then
+    pass "per_process_top_n rejects 0"
+else
+    fail "per_process_top_n should reject 0 ($val)"
+fi
+
+echo "21" > "$SYSDIR/per_process_top_n" 2>/dev/null
+val=$(cat "$SYSDIR/per_process_top_n" 2>/dev/null)
+if [ "$val" = "10" ]; then
+    pass "per_process_top_n rejects 21 (>20 max)"
+else
+    fail "per_process_top_n should reject 21 ($val)"
+fi
+
+# Reset top_n
+echo "5" > "$SYSDIR/per_process_top_n" 2>/dev/null
+
+# stats_summary should now show tracked_processes
+val=$(cat "$SYSDIR/stats_summary" 2>/dev/null)
+if echo "$val" | grep -q "tracked_processes"; then
+    pass "stats_summary shows tracked_processes when enabled"
+else
+    fail "stats_summary should show tracked_processes ($val)"
+fi
+
+# Disable per_process_stats (should clear all entries)
+echo "0" > "$SYSDIR/per_process_stats" 2>/dev/null
+val=$(cat "$SYSDIR/per_process_stats" 2>/dev/null)
+if [ "$val" = "0" ]; then
+    pass "per_process_stats disabled"
+else
+    fail "per_process_stats disable failed ($val)"
+fi
+
+# Debugfs per_process should exist
+if [ -e "$DEBUGDIR/per_process" ]; then
+    pass "debugfs per_process exists"
+else
+    fail "debugfs per_process missing"
+fi
+
+# ============================================================
 # Test 8: Module unload
 # ============================================================
 echo ""
 echo "=== Test 8: Module unload ==="
-rmmod minimem 2>/dev/null
-if [ $? -eq 0 ]; then
+if rmmod minimem 2>/dev/null; then
     pass "module unloaded successfully"
 else
     fail "module unload failed"

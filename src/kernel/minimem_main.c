@@ -39,6 +39,7 @@
 #include "minimem_shrinker.h"
 #include "minimem_scanner.h"
 #include "minimem_hook.h"
+#include "minimem_proc_stats.h"
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("MiniMem Project");
@@ -778,6 +779,11 @@ static int __init minimem_init(void)
 	atomic64_set(&minimem_stats.compress_ns_total, 0);
 	atomic64_set(&minimem_stats.decompress_ns_total, 0);
 
+	ret = minimem_proc_stats_init();
+	if (ret) {
+		pr_warn("minimem: failed to initialize per-process stats (non-fatal)\n");
+	}
+
 	ret = minimem_compress_init();
 	if (ret) {
 		pr_err("minimem: failed to allocate per-CPU buffers\n");
@@ -860,6 +866,21 @@ static int __init minimem_init(void)
 		return ret;
 	}
 
+	/* Create per-process stats sysfs attributes */
+	{
+		struct kobj_attribute **ppattrs;
+		int i;
+
+		ppattrs = minimem_proc_stats_get_sysfs_attrs();
+		for (i = 0; ppattrs[i]; i++) {
+			ret = sysfs_create_file(minimem_kobj,
+						&ppattrs[i]->attr);
+			if (ret)
+				pr_warn("minimem: failed to create proc_stats sysfs file: %d\n",
+					ret);
+		}
+	}
+
 	minimem_debugfs_dir = debugfs_create_dir("minimem", NULL);
 	if (!IS_ERR(minimem_debugfs_dir)) {
 		debugfs_create_file("compress", 0200, minimem_debugfs_dir,
@@ -872,6 +893,8 @@ static int __init minimem_init(void)
 				    NULL, &pte_test_fops);
 		debugfs_create_file("compress_vaddr", 0200, minimem_debugfs_dir,
 				    NULL, &compress_vaddr_fops);
+		debugfs_create_file("per_process", 0400, minimem_debugfs_dir,
+				    NULL, minimem_proc_stats_get_debugfs_fops());
 	}
 
 	pr_info("minimem: transparent memory compression loaded (v" MINIMEM_VERSION_STR ")\n");
@@ -883,10 +906,21 @@ static int __init minimem_init(void)
 
 static void __exit minimem_exit(void)
 {
+	/* Remove per-process stats sysfs files */
+	{
+		struct kobj_attribute **ppattrs;
+		int i;
+
+		ppattrs = minimem_proc_stats_get_sysfs_attrs();
+		for (i = 0; ppattrs[i]; i++)
+			sysfs_remove_file(minimem_kobj, &ppattrs[i]->attr);
+	}
+
 	debugfs_remove_recursive(minimem_debugfs_dir);
 	sysfs_remove_group(minimem_kobj, &minimem_attr_group);
 	kobject_put(minimem_kobj);
 
+	minimem_proc_stats_exit();
 	minimem_hook_exit();
 	minimem_scanner_exit();
 	minimem_shrinker_exit();

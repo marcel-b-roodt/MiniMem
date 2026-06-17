@@ -42,6 +42,7 @@
 #include "minimem_scanner.h"
 #include "minimem_zswap.h"
 #include "minimem_hook.h"
+#include "minimem_proc_stats.h"
 
 static struct task_struct *scanner_task;
 static atomic_t scanner_enabled = ATOMIC_INIT(0);
@@ -472,6 +473,7 @@ static int scanner_thread(void *data)
 		}
 
 		minimem_scan_batch();
+		minimem_proc_stats_gc();
 
 		msleep_interruptible(atomic64_read(&scanner_interval_ms));
 	}

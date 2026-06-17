@@ -29,7 +29,6 @@ MODULE="$SCRIPT_DIR/src/kernel/minimem.ko"
 MODULE_NAME="minimem"
 SYSFS_DIR="/sys/kernel/minimem"
 DEBUGFS_DIR="/sys/kernel/debug/minimem"
-DMESG_MARKER="MINIMEM_TEST_$$"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

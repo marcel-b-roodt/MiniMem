@@ -41,8 +41,7 @@ if [ -d "$SYSDIR" ]; then
 else
     insmod /lib/modules/$(uname -r)/kernel/lib/lz4/lz4_compress.ko 2>/dev/null || \
         modprobe lz4_compress 2>/dev/null || true
-    insmod /minimem.ko
-    if [ $? -eq 0 ] && [ -d "$SYSDIR" ]; then
+    if insmod /minimem.ko 2>/dev/null && [ -d "$SYSDIR" ]; then
         pass "module loaded successfully"
     else
         fail "module load failed"
@@ -101,11 +100,10 @@ echo "=== Test 3: Compression roundtrip ==="
 
 if [ -w "$DEBUGDIR/compress" ]; then
     ZSWAP_BEFORE=$(cat "$SYSDIR/zswap_pages" 2>/dev/null)
-    SAVED_BEFORE=$(cat "$SYSDIR/zswap_saved" 2>/dev/null)
+     SAVED_BEFORE=$(cat "$SYSDIR/zswap_saved" 2>/dev/null)
 
-    # Compress a page of 0x42 bytes (highly compressible)
-    echo "1" > "$DEBUGDIR/compress" 2>/dev/null
-    if [ $? -eq 0 ]; then
+     # Compress a page of 0x42 bytes (highly compressible)
+     if echo "1" > "$DEBUGDIR/compress" 2>/dev/null; then
         pass "compress write succeeded"
     else
         fail "compress write failed"
@@ -287,8 +285,7 @@ fi
 # ============================================================
 echo ""
 echo "=== Test 8: Module unload ==="
-rmmod minimem 2>/dev/null
-if [ $? -eq 0 ]; then
+if rmmod minimem 2>/dev/null; then
     pass "module unloaded successfully"
 else
     fail "module unload failed"

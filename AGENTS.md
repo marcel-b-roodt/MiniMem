@@ -216,6 +216,10 @@ Every release must update the version in **all** of these locations. The `script
 | `packaging/aur/minimem-dkms/PKGBUILD` | `pkgver=X.Y.Z` |
 | `packaging/aur/minimem-dkms/.SRCINFO` | `pkgver = X.Y.Z` and source URL |
 | `packaging/aur/minimem-dkms/minimem-dkms.install` | `/usr/src/minimem-X.Y.Z/` paths |
+| `packaging/aur/minimem-dkms-systemd/PKGBUILD` | `pkgver=X.Y.Z` |
+| `packaging/aur/minimem-dkms-systemd/.SRCINFO` | `pkgver = X.Y.Z` and source URL |
+| `packaging/aur/minimem-dkms-systemd/minimem-dkms-systemd.install` | version references |
+| `scripts/local-install.sh` | `VERSION="X.Y.Z"` |
 | `packaging/fedora/minimem.spec` | `Version: X.Y.Z` and changelog |
 | `packaging/debian/control` | `minimem-dkms-systemd` depends version |
 | `packaging/debian/rules` | `DKMS_VERSION := X.Y.Z` |

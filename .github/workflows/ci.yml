@@ -55,10 +55,9 @@ jobs:
           curl -fsSL https://github.com/Snaipe/Criterion/releases/download/v2.4.3/criterion-2.4.3.tar.xz -o /tmp/criterion.tar.xz
           tar -xf /tmp/criterion.tar.xz -C /tmp
           cd /tmp/criterion-2.4.3
-          mkdir build && cd build
-          cmake .. -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release
-          make -j$(nproc)
-          sudo make install
+          meson setup build -Dprefix=/usr -Dbuildtype=release
+          ninja -C build
+          sudo ninja -C build install
           sudo ldconfig
 
       - name: Configure
@@ -140,8 +139,13 @@ jobs:
       - name: Lint shell scripts
         run: |
           # shellcheck source=ignore to avoid false positives on sourced scripts
+          # SC2015: A && B || C is intentional in test assertions (ok/fail always return 0)
+          # SC2034: unused variables may be used externally or in eval context
+          # SC2126: grep -c is used where appropriate but wc -l is clearer for counting matches
           find . -name '*.sh' \
             -not -path './.vm-test/*' \
             -not -path './subprojects/*' \
             -not -name 'collect_page_dumps.sh' \
-            | xargs shellcheck -s bash -S style -e SC1090 -e SC1091 -e SC2086 -e SC2046
+            | xargs shellcheck -s bash -S style \
+                -e SC1090 -e SC1091 -e SC2086 -e SC2046 \
+                -e SC2015 -e SC2034 -e SC2126

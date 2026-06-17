@@ -1,4 +1,6 @@
 #!/bin/bash
+# shellcheck shell=bash
+# SC2015: A && B || C is intentional here — ok()/fail() always return 0
 # tests/test_dkms_packaging.sh — Verify DKMS packaging correctness
 #
 # Run without root. Checks file layout, script syntax, idempotency,
@@ -59,7 +61,7 @@ grep -q 'MINIMEM_KERNEL' "$DKMS_DIR/Makefile" && ok "MINIMEM_KERNEL flag set" ||
 echo ""
 echo "--- Patches ---"
 [ -f "$PATCHES_DIR/series" ] && ok "patches/series exists" || fail "patches/series missing"
-patch_count=$(ls -1 "$PATCHES_DIR"/minimem-*.patch 2>/dev/null | wc -l)
+patch_count=$(find "$PATCHES_DIR" -maxdepth 1 -name 'minimem-*.patch' 2>/dev/null | wc -l)
 [ "$patch_count" -ge 2 ] && ok "$patch_count patch files found" || fail "expected 2+ patches, found $patch_count"
 
 while IFS= read -r patchname; do

@@ -77,6 +77,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | VRAM stats tracking | ✅ Complete | Cumulative compress/decompress counts, bytes saved, latency totals |
 | VRAM roundtrip tests | ✅ Complete | 9 standalone tests: register/unregister, FP16/INT8 roundtrip, compress_all_idle, stats, tier advice, tier/format names, touch updates, ctx_create zero capacity, find_buf |
 | AI workload compressor | ✅ Complete | FP16/BF16 BYTE_STREAM_SPLIT and INT8 row-delta; 1.96:1 FP16, 141:1 INT8; all under 10μs decompress |
+| Per-process stats | 🔧 In Progress | Optional debugfs per-process compression stats; sysfs toggle + anonymized summary; see research/023 |
 | nvCOMP integration | 📋 Planned | Evaluate GPU-parallel bulk compression |
 | Driver integration points | 🔧 In Progress | TTM `amdgpu_vram_mgr` is primary insertion point; mm/ has zero VRAM visibility; CXL Type-3 works today; see research/014 |
 | Userspace API | 📋 Planned | ioctl/sysfs for compression policy advice |

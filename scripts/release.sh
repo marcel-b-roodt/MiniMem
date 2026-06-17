@@ -198,6 +198,7 @@ else
     sed -i "s/$OLD_VERSION/$VERSION/g" scripts/publish-debian.sh
     sed -i "s/$OLD_VERSION/$VERSION/g" scripts/publish-fedora.sh
     sed -i "s/$OLD_VERSION/$VERSION/g" scripts/publish-all.sh
+    sed -i "s/$OLD_VERSION/$VERSION/g" scripts/local-install.sh
 
     # AUR packaging
     sed -i "s/$OLD_VERSION/$VERSION/g" packaging/aur/minimem/PKGBUILD
@@ -205,6 +206,9 @@ else
     sed -i "s/$OLD_VERSION/$VERSION/g" packaging/aur/minimem-dkms/PKGBUILD
     sed -i "s/$OLD_VERSION/$VERSION/g" packaging/aur/minimem-dkms/.SRCINFO
     sed -i "s/$OLD_VERSION/$VERSION/g" packaging/aur/minimem-dkms/minimem-dkms.install
+    sed -i "s/$OLD_VERSION/$VERSION/g" packaging/aur/minimem-dkms-systemd/PKGBUILD
+    sed -i "s/$OLD_VERSION/$VERSION/g" packaging/aur/minimem-dkms-systemd/.SRCINFO
+    sed -i "s/$OLD_VERSION/$VERSION/g" packaging/aur/minimem-dkms-systemd/minimem-dkms-systemd.install
 
     # Fedora/RPM packaging
     sed -i "s/$OLD_VERSION/$VERSION/g" packaging/fedora/minimem.spec
@@ -328,8 +332,9 @@ echo "  MiniMem $TAG Released"
 echo "=========================================="
 echo ""
 echo "  GitHub:    https://github.com/marcel-b-roodt/MiniMem/releases/tag/$TAG"
-echo "  AUR lib:   https://aur.archlinux.org/packages/minimem"
-echo "  AUR dkms:  https://aur.archlinux.org/packages/minimem-dkms"
+echo "  AUR lib:     https://aur.archlinux.org/packages/minimem"
+echo "  AUR dkms:    https://aur.archlinux.org/packages/minimem-dkms"
+echo "  AUR systemd: https://aur.archlinux.org/packages/minimem-dkms-systemd"
 echo "  OBS:       https://build.opensuse.org/project/show/home:${OBS_USER:-YOUR_OBS_USER}"
 echo ""
 echo "  Post-release checklist:"

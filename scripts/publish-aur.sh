@@ -1,7 +1,8 @@
 #!/bin/bash
 # scripts/publish-aur.sh — Publish MiniMem to AUR (Arch Linux)
 #
-# AUR packages: minimem (library) and minimem-dkms (kernel module)
+# AUR packages: minimem (library), minimem-dkms (kernel module),
+#               minimem-dkms-systemd (systemd units)
 #
 # First-time setup (manual, one-off):
 #   1. Create an AUR account at https://aur.archlinux.org/register
@@ -42,8 +43,9 @@ case "$ACTION" in
         echo "   AUR_SSH_USER=you ./scripts/publish-aur.sh --update"
         echo ""
         echo "AUR packages:"
-        echo "  minimem        — userspace compression library"
-        echo "  minimem-dkms   — kernel module (DKMS, auto-rebuilds on kernel update)"
+        echo "  minimem              — userspace compression library"
+        echo "  minimem-dkms         — kernel module (DKMS, auto-rebuilds on kernel update)"
+        echo "  minimem-dkms-systemd — systemd units for auto-load and auto-enable"
         ;;
 
     --init)
@@ -60,33 +62,43 @@ case "$ACTION" in
             git clone "ssh://$AUR_SSH/minimem-dkms.git" "$WORK_DIR/minimem-dkms"
         fi
 
+        if [ ! -d "$WORK_DIR/minimem-dkms-systemd" ]; then
+            echo "Cloning minimem-dkms-systemd ..."
+            git clone "ssh://$AUR_SSH/minimem-dkms-systemd.git" "$WORK_DIR/minimem-dkms-systemd"
+        fi
+
         echo ""
         echo "AUR repos cloned to $WORK_DIR/"
         echo "Run 'AUR_SSH_USER=you ./scripts/publish-aur.sh --update' to push PKGBUILDs."
         ;;
 
     --update)
-        if [ ! -d "$WORK_DIR/minimem" ] || [ ! -d "$WORK_DIR/minimem-dkms" ]; then
+        if [ ! -d "$WORK_DIR/minimem" ] || [ ! -d "$WORK_DIR/minimem-dkms" ] || [ ! -d "$WORK_DIR/minimem-dkms-systemd" ]; then
             echo "Error: AUR repos not initialized. Run './scripts/publish-aur.sh --init' first."
             exit 1
         fi
 
         echo "=== Updating AUR packages to v$VERSION ==="
 
-        for pkg in minimem minimem-dkms; do
+        for pkg in minimem minimem-dkms minimem-dkms-systemd; do
             echo "--- $pkg ---"
             PKG_DIR="$WORK_DIR/$pkg"
 
             cp "$PACKAGING_DIR/$pkg/PKGBUILD" "$PKG_DIR/PKGBUILD"
 
-            if [ "$pkg" = "minimem-dkms" ]; then
+            if [ "$pkg" = "minimem-dkms" ] && [ -f "$PACKAGING_DIR/$pkg/minimem-dkms.install" ]; then
                 cp "$PACKAGING_DIR/$pkg/minimem-dkms.install" "$PKG_DIR/"
+            fi
+
+            if [ "$pkg" = "minimem-dkms-systemd" ] && [ -f "$PACKAGING_DIR/$pkg/minimem-dkms-systemd.install" ]; then
+                cp "$PACKAGING_DIR/$pkg/minimem-dkms-systemd.install" "$PKG_DIR/"
             fi
 
             (cd "$PKG_DIR" && \
                 makepkg --printsrcinfo > .SRCINFO && \
                 git add PKGBUILD .SRCINFO && \
-                [ -f minimem-dkms.install ] && git add minimem-dkms.install || true && \
+                ([ -f minimem-dkms.install ] && git add minimem-dkms.install || true) && \
+                ([ -f minimem-dkms-systemd.install ] && git add minimem-dkms-systemd.install || true) && \
                 git commit -m "Update to v$VERSION" && \
                 git push)
         done
@@ -95,11 +107,12 @@ case "$ACTION" in
         echo "AUR packages updated."
         echo "  https://aur.archlinux.org/packages/minimem"
         echo "  https://aur.archlinux.org/packages/minimem-dkms"
+        echo "  https://aur.archlinux.org/packages/minimem-dkms-systemd"
         ;;
 
     --check)
         echo "=== Verifying AUR packaging ==="
-        for pkg in minimem minimem-dkms; do
+        for pkg in minimem minimem-dkms minimem-dkms-systemd; do
             PKG_DIR="$PACKAGING_DIR/$pkg"
             echo "--- $pkg ---"
 
@@ -113,6 +126,10 @@ case "$ACTION" in
 
             if [ "$pkg" = "minimem-dkms" ] && [ -f "$PKG_DIR/minimem-dkms.install" ]; then
                 cp "$PKG_DIR/minimem-dkms.install" "$tmpdir/"
+            fi
+
+            if [ "$pkg" = "minimem-dkms-systemd" ] && [ -f "$PKG_DIR/minimem-dkms-systemd.install" ]; then
+                cp "$PKG_DIR/minimem-dkms-systemd.install" "$tmpdir/"
             fi
 
             (cd "$tmpdir" && makepkg --printsrcinfo > .SRCINFO 2>/dev/null) || {

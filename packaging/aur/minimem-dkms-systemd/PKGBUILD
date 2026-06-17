@@ -1,0 +1,26 @@
+# Maintainer: Marcel Broodt <minimem@noreply.github.com>
+pkgname=minimem-dkms-systemd
+pkgver=0.7.0
+pkgrel=1
+pkgdesc="Systemd units for MiniMem kernel module auto-load and auto-enable"
+arch=('any')
+url="https://github.com/marcel-b-roodt/MiniMem"
+license=('GPL-2.0-only')
+depends=('minimem-dkms' 'systemd')
+optdepends=('linux-headers: build module for current kernel')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/marcel-b-roodt/MiniMem/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+install=minimem-dkms-systemd.install
+
+build() {
+    true
+}
+
+package() {
+    install -Dm644 "$srcdir/MiniMem-$pkgver/systemd/minimem-load.service" \
+        "$pkgdir/usr/lib/systemd/system/minimem-load.service"
+    install -Dm644 "$srcdir/MiniMem-$pkgver/systemd/minimem.service" \
+        "$pkgdir/usr/lib/systemd/system/minimem.service"
+    install -Dm644 "$srcdir/MiniMem-$pkgver/systemd/modules-load.d/minimem.conf" \
+        "$pkgdir/usr/lib/modules-load.d/minimem.conf"
+}

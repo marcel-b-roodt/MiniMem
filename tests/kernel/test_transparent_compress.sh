@@ -83,15 +83,13 @@ else
 
     echo "=== Testing compress_vaddr interface ==="
 
-    # Record stats before
-    FAULTS_BEFORE=$(cat "$SYSDIR/hook_faults" 2>/dev/null)
-    ZSWAP_BEFORE=$(cat "$SYSDIR/zswap_pages" 2>/dev/null)
+    # Record stats before (unused in this test but kept for reference)
+    _faults_before=$(cat "$SYSDIR/hook_faults" 2>/dev/null)
+    _zswap_before=$(cat "$SYSDIR/zswap_pages" 2>/dev/null)
 
     # Try compress_vaddr with a likely-invalid address
     # (this tests that the interface exists and handles errors)
-    echo "0x1" > "$DEBUGDIR/compress_vaddr" 2>/dev/null
-    RET=$?
-    if [ $RET -eq 0 ]; then
+    if echo "0x1" > "$DEBUGDIR/compress_vaddr" 2>/dev/null; then
         echo "  compress_vaddr accepted address (unexpected for 0x1)"
     else
         pass "compress_vaddr rejects invalid address"

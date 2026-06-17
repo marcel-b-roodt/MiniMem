@@ -30,7 +30,7 @@ for k in "/boot/vmlinuz-$(uname -r)" "/boot/vmlinuz-$(uname -r | sed 's/\.[0-9]*
 done
 if [[ -z "$KERNEL" ]]; then
     # Try any vmlinuz in /boot
-    KERNEL=$(ls /boot/vmlinuz-* 2>/dev/null | head -1)
+    KERNEL=$(find /boot -name 'vmlinuz-*' -maxdepth 1 2>/dev/null | head -1)
 fi
 
 INITRD=""
@@ -403,7 +403,6 @@ INITEOF
 
 run_vm_test() {
     local kernel_cmdline="console=ttyS0 panic=-1 quiet rdinit=/init root=/dev/ram0"
-    local qemu_extra=""
 
     if $SHELL_MODE; then
         # Interactive shell — just boot and drop to shell
@@ -469,7 +468,7 @@ run_vm_test() {
     fi
 
     # Extract benchmark results
-    local baseline_ns serial_ns parallel_ns
+    local baseline_ns
     baseline_ns=$(grep -oP 'compress_ns_total \K[0-9]+' "$output_file" | head -1 || echo "N/A")
     serial_decompress=$(grep -oP 'decompress_ns_total \K[0-9]+' "$output_file" | head -1 || echo "N/A")
     parallel_pages=$(grep -oP 'parallel_pages \K[0-9]+' "$output_file" | head -1 || echo "N/A")
