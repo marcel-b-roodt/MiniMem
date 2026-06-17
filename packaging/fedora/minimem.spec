@@ -9,6 +9,7 @@ Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz#/minimem-%{version}.
 Source1:        minimem-rpmlintrc
 
 BuildRequires:  meson
+BuildRequires:  pkgconf-pkg-config
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  libzstd-devel
