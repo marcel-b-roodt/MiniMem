@@ -1,0 +1,9 @@
+# MiniMem rpmlint overrides for openSUSE
+# DKMS packages ship .c/.h files in /usr/src/ by design
+addFilter("devel-file-in-non-devel-package .*/usr/src/minimem-.*")
+addFilter("filelist-forbidden-fhs23 .*/usr/src/minimem-.*")
+# Static library is intentionally shipped for kernel module development
+addFilter("static-library-without-debuginfo .*libminimem_static")
+addFilter("lto-no-text-in-archive .*libminimem_static")
+# libzstd dependency is explicit by design
+addFilter("explicit-lib-dependency libzstd")

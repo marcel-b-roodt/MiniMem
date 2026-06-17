@@ -112,6 +112,7 @@ PRJ_XML
 
         echo "Copying packaging files ..."
         cp "$PACKAGING_DIR/fedora/minimem.spec" "$WORK_DIR/minimem/"
+        cp "$PACKAGING_DIR/fedora/minimem-rpmlintrc" "$WORK_DIR/minimem/"
         cp "$PACKAGING_DIR/debian/control" "$WORK_DIR/minimem/debian.control"
         cp "$PACKAGING_DIR/debian/rules" "$WORK_DIR/minimem/debian.rules"
         cp "$PACKAGING_DIR/debian/changelog" "$WORK_DIR/minimem/debian.changelog"

@@ -6,6 +6,7 @@ Summary:        Transparent lossless memory compression library
 License:        GPL-2.0-only AND BSD-2-Clause AND BSD-3-Clause
 URL:            https://github.com/marcel-b-roodt/MiniMem
 Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz#/minimem-%{version}.tar.gz
+Source1:        minimem-rpmlintrc
 
 BuildRequires:  meson
 BuildRequires:  gcc

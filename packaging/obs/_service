@@ -1,5 +1,5 @@
 <services>
-  <service name="set_version">
-    <param name="basename">minimem</param>
+  <service name="download_files">
+    <param name="enforceupstream">1</param>
   </service>
 </services>
