@@ -1,6 +1,6 @@
 pkgbase = minimem-dkms
 	pkgdesc = MiniMem transparent memory compression kernel module (DKMS)
-	pkgver = 0.6.0
+	pkgver = 0.7.0
 	pkgrel = 1
 	url = https://github.com/marcel-b-roodt/MiniMem
 	arch = x86_64
@@ -9,8 +9,9 @@ pkgbase = minimem-dkms
 	makedepends = gcc
 	depends = dkms
 	optdepends = linux-headers: build module for current kernel
+	optdepends = systemd: auto-load and auto-enable module
 	install = minimem-dkms.install
-	source = minimem-dkms-0.6.0.tar.gz::https://github.com/marcel-b-roodt/MiniMem/archive/refs/tags/v0.6.0.tar.gz
+	source = minimem-dkms-0.7.0.tar.gz::https://github.com/marcel-b-roodt/MiniMem/archive/refs/tags/v0.7.0.tar.gz
 	sha256sums = SKIP
 
 pkgname = minimem-dkms

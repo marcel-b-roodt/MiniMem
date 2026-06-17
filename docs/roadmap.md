@@ -40,8 +40,11 @@ The core deliverable: transparent compression of cold pages in a running Linux s
 | Zsmalloc storage | ✅ Complete | zsmalloc pool for compressed page data; 6.x kernel API (zs_obj_write/read) |
 | Compression dispatch | ✅ Complete | Per-CPU buffers; 7 algorithms (same_page, BDI, WKdm, WKdm-64, block_class, LZ4, delta) |
 | Parallel cluster decompression | ✅ Complete | Workqueue (minimem_dec); atomic completion; 32-page cluster support; 3.76× speedup |
+| Parallel decompression auto-detect | ✅ Complete | parallel_mode sysfs: 0=disabled, 1=enabled, 2=auto (default); serial on 1-CPU, parallel on ≥2; avoids overhead on small systems |
+| Systemd auto-load/enable | ✅ Complete | minimem-load.service + minimem.service + modules-load.d; zero-config after install |
+| ZRAM coexistence | ✅ Complete | MiniMem and zram are complementary (different page populations); separate zsmalloc pools; kprobe adds ~1-2μs to zram faults (eliminated on patched kernels) |
 | Debugfs benchmark | ✅ Complete | baseline/serial/parallel modes via /sys/kernel/debug/minimem/bench |
-| Compile and load module | ✅ Complete | minimem.ko v0.6.0 for 6.18.33-1-MANJARO; depends on lz4_compress |
+| Compile and load module | ✅ Complete | minimem.ko v0.7.0 for 6.18.33-1-MANJARO; depends on lz4_compress |
 | PTE marking | ✅ Complete | PTE_MARKER_MINIMEM=BIT(3) in SWP_PTE_MARKER; 54-bit index; debugfs roundtrip; compress_and_replace_pte via kallsyms |
 | Page fault handler | ✅ Complete | kprobe on do_swap_page OR registered VM_FAULT_NOPAGE handler (patched kernels); 4/4 E2E pages verified |
 | Idle page tracking | ✅ Complete | VMA-based mark-sweep scanner; sweep enabled on patched kernels |
@@ -57,6 +60,22 @@ The core deliverable: transparent compression of cold pages in a running Linux s
 | Full scanner E2E on patched kernel | 📋 Planned | Needs custom kernel build; runtime detection ready |
 | Shrinker verification under pressure | 📋 Planned | Needs memory stress test |
 | Real data benchmarks | 📋 Planned | Actual page dumps + AI model weight tensors |
+
+### Kernel Upstreaming Roadmap
+
+MiniMem targets mainline Linux kernel inclusion. See [research/022](research/022-kernel-upstreaming-requirements.md) for full details.
+
+| Milestone | Status | Notes |
+|---|---|---|
+| PTE marker bit (BIT(3)) formal allocation | 📋 Planned | Needs agreement with mm maintainers |
+| Kernel patches pass `checkpatch.pl --strict` | 📋 Planned | ~42 lines; must be clean |
+| Benchmark data for reviewers | 📋 Planned | Latency, memory savings, no regressions |
+| THP + KSM compatibility testing | 📋 Planned | Must not break huge pages or KSM |
+| OOM behavior verification | 📋 Planned | Must handle extreme memory pressure gracefully |
+| zram coexistence testing | 📋 Planned | Verify no interference under load |
+| `Documentation/vm/minimem.rst` | 📋 Planned | Kernel documentation for the module |
+| Submit to linux-mm mailing list | 📋 Planned | Target: 6.12 LTS or latest stable |
+| Respond to review feedback | 📋 Planned | Expect 6-18 months from first submission |
 
 ---
 

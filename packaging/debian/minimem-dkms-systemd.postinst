@@ -1,0 +1,16 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        if [ -d /run/systemd/system ]; then
+            systemctl enable minimem-load.service minimem.service 2>/dev/null || true
+            systemctl start minimem-load.service 2>/dev/null || true
+            systemctl start minimem.service 2>/dev/null || true
+        fi
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

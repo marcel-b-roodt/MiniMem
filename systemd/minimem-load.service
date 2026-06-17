@@ -1,0 +1,12 @@
+[Unit]
+Description=Load MiniMem kernel module
+Documentation=https://github.com/marcel-b-roodt/MiniMem
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/modprobe minimem
+ExecStop=/sbin/modprobe -r minimem
+
+[Install]
+WantedBy=multi-user.target

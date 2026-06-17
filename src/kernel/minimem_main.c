@@ -29,6 +29,7 @@
 #include <linux/ktime.h>
 #include <linux/highmem.h>
 #include <linux/uaccess.h>
+#include <linux/cpumask.h>
 #include <linux/zsmalloc.h>
 
 #include "minimem_compress.h"
@@ -42,9 +43,9 @@
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("MiniMem Project");
 MODULE_DESCRIPTION("Transparent in-memory page compression");
-MODULE_VERSION("0.6.0");
+MODULE_VERSION("0.7.0");
 
-#define MINIMEM_VERSION_STR "0.6.0"
+#define MINIMEM_VERSION_STR "0.7.0"
 
 static struct minimem_stats {
 	atomic64_t pages_compressed;
@@ -324,6 +325,35 @@ static ssize_t max_pool_pages_store(struct kobject *kobj,
 	return count;
 }
 
+static ssize_t parallel_mode_show(struct kobject *kobj,
+				   struct kobj_attribute *attr, char *buf)
+{
+	int mode = minimem_parallel_get_mode();
+
+	if (mode == MINIMEM_PARALLEL_AUTO)
+		return sprintf(buf, "auto (%d CPUs, %s)\n",
+			       num_online_cpus(),
+			       minimem_parallel_is_active() ? "active" : "inactive");
+	return sprintf(buf, "%s\n",
+		       mode == MINIMEM_PARALLEL_ENABLED ? "enabled" : "disabled");
+}
+
+static ssize_t parallel_mode_store(struct kobject *kobj,
+				    struct kobj_attribute *attr,
+				    const char *buf, size_t count)
+{
+	int val;
+
+	if (strncmp(buf, "auto", 4) == 0 || strncmp(buf, "2", 1) == 0) {
+		minimem_parallel_set_mode(MINIMEM_PARALLEL_AUTO);
+	} else if (kstrtoint(buf, 0, &val) == 0) {
+		minimem_parallel_set_mode(val);
+	} else {
+		return -EINVAL;
+	}
+	return count;
+}
+
 static struct kobj_attribute pages_compressed_attr =
 	__ATTR(pages_compressed, 0444, pages_compressed_show, NULL);
 static struct kobj_attribute pages_decompressed_attr =
@@ -380,6 +410,8 @@ static struct kobj_attribute kernel_patches_attr =
 	__ATTR(kernel_patches, 0444, kernel_patches_show, NULL);
 static struct kobj_attribute max_pool_pages_attr =
 	__ATTR(max_pool_pages, 0644, max_pool_pages_show, max_pool_pages_store);
+static struct kobj_attribute parallel_mode_attr =
+	__ATTR(parallel_mode, 0644, parallel_mode_show, parallel_mode_store);
 
 static struct attribute *minimem_attrs[] = {
 	&pages_compressed_attr.attr,
@@ -410,6 +442,7 @@ static struct attribute *minimem_attrs[] = {
 	&hook_faults_attr.attr,
 	&kernel_patches_attr.attr,
 	&max_pool_pages_attr.attr,
+	&parallel_mode_attr.attr,
 	NULL,
 };
 
@@ -623,7 +656,8 @@ static ssize_t stats_read(struct file *file, char __user *buf,
 		       "zswap_saved %lu\n"
 		       "pool_pages %lu\n"
 		       "parallel_clusters %lld\n"
-		       "parallel_pages %lld\n",
+		       "parallel_pages %lld\n"
+		       "parallel_mode %s\n",
 		       atomic64_read(&minimem_stats.pages_compressed),
 		       atomic64_read(&minimem_stats.pages_decompressed),
 		       minimem_zswap_bytes_saved(),
@@ -642,7 +676,9 @@ static ssize_t stats_read(struct file *file, char __user *buf,
 		       minimem_zswap_bytes_saved(),
 		       zs_get_total_pages(minimem_zswap_pool()),
 		       atomic64_read(&minimem_par_stats.clusters_decompressed),
-		       atomic64_read(&minimem_par_stats.pages_decompressed));
+		       atomic64_read(&minimem_par_stats.pages_decompressed),
+		       minimem_parallel_get_mode() == MINIMEM_PARALLEL_AUTO ? "auto" :
+		       minimem_parallel_get_mode() == MINIMEM_PARALLEL_ENABLED ? "enabled" : "disabled");
 
 	len += minimem_fault_stats_read(kbuf + len, sizeof(kbuf) - len);
 

@@ -1,23 +1,30 @@
-## Near-Term — Kernel Module (Stage 1 completion)
+## Near-Term — Parallel Auto-Detect, Systemd, Packaging
 
-- [ ] Build custom kernel with MiniMem patches applied — enables full scanner sweep. DKMS packaging done; patches auto-apply via install.sh. Need to rebuild kernel after patching.
-- [ ] Run full VM test suite with stress tests: `./build-kmod.sh build && ./build-kmod.sh tests && ./vm-test-minimem.sh`
+- [x] Add parallel decompression auto-detect (skip parallel on single-CPU systems)
+- [x] Add parallel_mode sysfs toggle (0=disabled, 1=enabled, 2=auto)
+- [x] Create systemd units for auto-load and auto-enable
+- [x] Package systemd units in RPM/Debian/AUR
+- [x] Update all packaging version numbers to 0.7.0
+- [x] Add zram coexistence documentation (research/004, research/021)
+- [x] Add kernel upstreaming roadmap (research/022, roadmap)
+
+## Near-Term — Kernel Module (Stage 1 remaining)
+
+- [ ] Build custom kernel with MiniMem patches applied — enables full scanner sweep
+- [ ] Run full VM test suite with stress tests
 - [ ] Test on real hardware (not QEMU) — NUMA, large memory, different CPU arches
-- [ ] Verify shrinker under real memory pressure — test_stress_pressure covers this but needs VM run
+- [ ] Verify shrinker under real memory pressure
+- [ ] THP + KSM compatibility testing (kernel upstreaming prerequisite)
+- [ ] OOM behavior verification (kernel upstreaming prerequisite)
+- [ ] zram coexistence load testing (kernel upstreaming prerequisite)
 
 ## Algorithm Library (Stage 0 remaining)
 
 - [ ] SIMD paths for LZ4 (SSE2/AVX2)
-- [ ] Zstd dictionary mode (add dictionary training for homogeneous pages)
+- [ ] Zstd dictionary mode
 - [ ] Real data benchmarks (collect actual page dumps + safetensor weights)
 
 ## Library Packaging
 
 - [ ] Install target verification on clean system
 - [ ] CI/CD for library build and kernel module build
-
-## VRAM Prototype (Milestone 3)
-
-- [ ] CUDA userspace program: load LLM weights, compress cold tensors with libminimem
-- [ ] Tiered VRAM management (hot/warm/cold/frozen)
-- [ ] MoE sparse activation: use router to determine hot experts

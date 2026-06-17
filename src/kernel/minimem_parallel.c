@@ -14,6 +14,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/slab.h>
+#include <linux/cpumask.h>
 #include <linux/workqueue.h>
 #include <linux/completion.h>
 #include <linux/atomic.h>
@@ -28,6 +29,8 @@
 #include "minimem_zswap.h"
 
 #define MINIMEM_MAX_CLUSTER 32
+
+static atomic_t parallel_mode = ATOMIC_INIT(MINIMEM_PARALLEL_AUTO);
 
 struct minimem_cluster_ctx;
 
@@ -113,6 +116,30 @@ out:
 		complete(&ctx->done);
 }
 
+int minimem_parallel_get_mode(void)
+{
+	return atomic_read(&parallel_mode);
+}
+
+void minimem_parallel_set_mode(int mode)
+{
+	if (mode < MINIMEM_PARALLEL_DISABLED || mode > MINIMEM_PARALLEL_AUTO)
+		return;
+	atomic_set(&parallel_mode, mode);
+}
+
+bool minimem_parallel_is_active(void)
+{
+	int mode = atomic_read(&parallel_mode);
+
+	if (mode == MINIMEM_PARALLEL_DISABLED)
+		return false;
+	if (mode == MINIMEM_PARALLEL_ENABLED)
+		return true;
+	/* MINIMEM_PARALLEL_AUTO: enable when >= 2 CPUs available */
+	return num_online_cpus() >= 2;
+}
+
 int minimem_parallel_init(void)
 {
 	minimem_wq = alloc_workqueue("minimem_dec",
@@ -149,7 +176,7 @@ int minimem_parallel_decompress(unsigned long *vaddrs,
 	if (count == 0 || count > MINIMEM_MAX_CLUSTER)
 		return -EINVAL;
 
-	if (!minimem_wq)
+	if (!minimem_wq || !minimem_parallel_is_active())
 		return -ENODEV;
 
 	map = minimem_zswap_map();

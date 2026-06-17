@@ -1,0 +1,3 @@
+lib/systemd/system/minimem-load.service
+lib/systemd/system/minimem.service
+lib/modules-load.d/minimem.conf

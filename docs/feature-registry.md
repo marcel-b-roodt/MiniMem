@@ -39,10 +39,10 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Compression map | ✅ Complete | xarray-based VA → entry map; kmem_cache-backed entries; RCU-safe lookups |
 | Compression dispatch | ✅ Complete | Per-CPU buffer compression dispatch; same-page, BDI, WKdm, WKdm-64, block_class, LZ4, delta |
 | Debugfs test interface | ✅ Complete | /sys/kernel/debug/minimem/{bench,compress,stats}; baseline/serial/parallel benchmark modes |
-| Parallel cluster decompression | ✅ Complete | Workqueue-based (minimem_dec); atomic completion; 32-page clusters; **3.76× speedup on 4 vCPUs** |
+| Parallel cluster decompression | ✅ Complete | Workqueue-based (minimem_dec); atomic completion; 32-page clusters; **3.76× speedup on 4 vCPUs**; auto-detect mode (disabled on 1-CPU, auto on ≥2, forced on/off via sysfs) |
 | QEMU VM test harness | ✅ Complete | vm-test-minimem.sh; Alpine rootfs; safe bare-metal isolation; 7-phase progressive testing |
 | Multi-algorithm dispatch | ✅ Complete | 7 algorithms wired into kernel dispatch; same_page, BDI, WKdm, WKdm-64, block_class, LZ4, delta |
-| Sysfs stats interface | ✅ Complete | 28 attributes: compress/decompress counts, latencies, zswap pages/bytes/saved, pool_pages, max_pool_pages, benchmark timings, scanner knobs, hook_faults, kernel_patches, parallel stats, scanner_pages_compressed/skipped |
+| Sysfs stats interface | ✅ Complete | 29 attributes: compress/decompress counts, latencies, zswap pages/bytes/saved, pool_pages, max_pool_pages, benchmark timings, scanner knobs, hook_faults, kernel_patches, parallel stats, scanner_pages_compressed/skipped, parallel_mode |
 | Memory overhead tracking | ✅ Complete | pool_pages sysfs attribute; zswap_pages/bytes/saved for compression efficiency |
 | Concurrency (RCU-safe, per-CPU) | ✅ Complete | RCU-safe xarray lookups; spinlock-protected writes; per-CPU compress/decompress buffers |
 | PTE marking for compressed pages | ✅ Complete | PTE_MARKER_MINIMEM=BIT(3) in SWP_PTE_MARKER offset; 54-bit index space; debugfs roundtrip test; compress_and_replace_pte implemented via resolved kallsyms symbols; MM_ANONPAGES RSS counter maintained |
@@ -60,6 +60,9 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | DKMS packaging | ✅ Complete | dkms.conf, DKMS Makefile, install/uninstall scripts, convenience scripts; auto-rebuild per kernel update; kernel patch application support |
 | Kernel patch detection | ✅ Complete | Runtime detection of minimem_register_fault_handler symbol; registers VM_FAULT_NOPAGE handler when patches present; falls back to kprobe on unpatched kernels; kernel_patches sysfs attribute |
 | Scanner sweep (patched kernels) | ✅ Complete | minimem_hook_marker_ready() returns true when kernel patches detected; sweep pass compresses cold pages; handle_pte_marker returns VM_FAULT_NOPAGE via registered handler |
+| Parallel decompression auto-detect | ✅ Complete | parallel_mode sysfs: 0=disabled, 1=enabled, 2=auto (default); auto enables parallel on ≥2 CPUs, serial on 1 CPU; avoids overhead on low-CPU systems |
+| Systemd auto-load/enable | ✅ Complete | minimem-load.service (modprobe), minimem.service (scanner_enabled=1), modules-load.d/minimem.conf; packaged in RPM/Debian/AUR |
+| ZRAM coexistence | ✅ Complete | MiniMem and zram are complementary (different page types); MiniMem uses separate zsmalloc pool; kprobe on do_swap_page adds minimal overhead to zram faults |
 | CI/CD (GitHub Actions) | ✅ Complete | 3 workflows: library build+test (gcc 12/14, Criterion), kernel module build (Ubuntu 22.04/24.04), packaging verification (DKMS+Debian+Fedora+AUR); Dependabot for Actions |
 
 ---

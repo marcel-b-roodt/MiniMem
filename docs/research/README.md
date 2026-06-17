@@ -35,6 +35,7 @@ Numbered research documents capturing findings from papers, experiments, and inv
 | [019](019-pte-marking-and-fault-interception.md) | PTE Marking & Fault Interception | SWP_PTE_MARKER type 31 + BIT(3) custom marker; 54-bit index space; page fault → decompress → remap; module-only via kprobes or kernel patch for do_swap_page |
 | [020](020-kernel-patch-do-swap-page.md) | Kernel Patch for do_swap_page() | Add PTE_MARKER_MINIMEM check in handle_pte_marker(); function pointer registration for module callback; kprobe approach works but has overhead and reliability limitations |
 | [021](021-zram-baseline-comparison.md) | zram Baseline Comparison | zram only compresses swapped pages; MiniMem compresses still-mapped idle pages; MiniMem 2.8× better ratio on pointer-heavy pages, 27× on AI INT8; complementary to zram, not a replacement |
+| [022](022-kernel-upstreaming-requirements.md) | Kernel Upstreaming Requirements | PTE marker bit allocation, small patch set (~42 lines), function pointer registration, performance data needed, safety guarantees (OOM, THP, KSM), 6-18 month timeline estimate |
 
 ---
 

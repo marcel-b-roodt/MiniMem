@@ -1,13 +1,14 @@
 # Maintainer: Marcel Broodt <minimem@noreply.github.com>
 pkgname=minimem-dkms
-pkgver=0.6.0
+pkgver=0.7.0
 pkgrel=1
 pkgdesc="MiniMem transparent memory compression kernel module (DKMS)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/marcel-b-roodt/MiniMem"
 license=('GPL-2.0-only')
 depends=('dkms')
-optdepends=('linux-headers: build module for current kernel')
+optdepends=('linux-headers: build module for current kernel'
+             'systemd: auto-load and auto-enable module')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/marcel-b-roodt/MiniMem/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 install=minimem-dkms.install
@@ -106,6 +107,10 @@ package() {
     install -Dm644 "$src_kernel/patches/minimem-"*.patch "$dkms_dir/patches/"
 
     _package_kernel_stubs "$dkms_dir"
+
+    install -Dm644 "$src_kernel/systemd/minimem-load.service" "$pkgdir/usr/lib/systemd/system/minimem-load.service"
+    install -Dm644 "$src_kernel/systemd/minimem.service" "$pkgdir/usr/lib/systemd/system/minimem.service"
+    install -Dm644 "$src_kernel/systemd/modules-load.d/minimem.conf" "$pkgdir/usr/lib/modules-load.d/minimem.conf"
 
     install -Dm644 "$src_kernel/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

@@ -1,5 +1,5 @@
 Name:           minimem
-Version:        0.6.0
+Version:        0.7.0
 Release:        1%{?dist}
 Summary:        Transparent lossless memory compression library
 
@@ -46,6 +46,7 @@ License:        GPL-2.0-only
 Requires:       dkms
 Requires:       gcc
 Requires:       kernel-devel
+Requires:       systemd
 BuildArch:      noarch
 ExclusiveArch:  x86_64 aarch64
 
@@ -149,13 +150,24 @@ cat > "$DKMS_DIR/include/limits.h" << 'STUB'
 #endif
 STUB
 
+mkdir -p %{buildroot}%{_unitdir}
+install -m 644 systemd/minimem-load.service %{buildroot}%{_unitdir}/
+install -m 644 systemd/minimem.service %{buildroot}%{_unitdir}/
+mkdir -p %{buildroot}%{_modulesloaddir}
+install -m 644 systemd/modules-load.d/minimem.conf %{buildroot}%{_modulesloaddir}/
+
 %post -n minimem-dkms
 dkms add minimem/%{version} 2>/dev/null || true
 dkms build minimem/%{version} -k $(uname -r) 2>/dev/null || true
 dkms install minimem/%{version} -k $(uname -r) 2>/dev/null || true
+%systemd_post minimem-load.service minimem.service
 
 %preun -n minimem-dkms
+%systemd_preun minimem.service minimem-load.service
 dkms remove minimem/%{version} --all 2>/dev/null || true
+
+%postun -n minimem-dkms
+%systemd_postun minimem-load.service minimem.service
 
 %files -n libminimem0
 %license LICENSE
@@ -171,7 +183,15 @@ dkms remove minimem/%{version} --all 2>/dev/null || true
 %attr(755,root,root) /usr/src/minimem-%{version}/install.sh
 %attr(755,root,root) /usr/src/minimem-%{version}/uninstall.sh
 /usr/src/minimem-%{version}/
+%{_unitdir}/minimem-load.service
+%{_unitdir}/minimem.service
+%{_modulesloaddir}/minimem.conf
 
 %changelog
+* Wed Jun 18 2026 Marcel Broodt <minimem@noreply.github.com> - 0.7.0-1
+- Add parallel decompression auto-detect and sysfs toggle
+- Add systemd units for auto-load and auto-enable
+- Add zram coexistence documentation
+
 * Tue Jun 17 2026 Marcel Broodt <minimem@noreply.github.com> - 0.6.0-1
 - Initial package

@@ -1,8 +1,10 @@
 #!/usr/bin/make -f
 
 DKMS_NAME := minimem
-DKMS_VERSION := 0.6.0
+DKMS_VERSION := 0.7.0
 DKMS_DESTDIR := debian/tmp/usr/src/$(DKMS_NAME)-$(DKMS_VERSION)
+SYSTEMD_DIR := debian/tmp/lib/systemd/system
+MODLOAD_DIR := debian/tmp/lib/modules-load.d
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
@@ -41,6 +43,11 @@ override_dh_auto_install:
 	for stub in string.h stdbool.h stdint.h stddef.h stdlib.h limits.h; do \
 		install -m 644 /dev/null $(DKMS_DESTDIR)/include/$$stub; \
 	done
+
+	mkdir -p $(SYSTEMD_DIR) $(MODLOAD_DIR)
+	install -m 644 systemd/minimem-load.service $(SYSTEMD_DIR)/
+	install -m 644 systemd/minimem.service $(SYSTEMD_DIR)/
+	install -m 644 systemd/modules-load.d/minimem.conf $(MODLOAD_DIR)/
 
 override_dh_dkms:
 	dh_dkms -V || true

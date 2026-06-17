@@ -71,4 +71,19 @@ struct minimem_parallel_stats {
 
 extern struct minimem_parallel_stats minimem_par_stats;
 
+/*
+ * Parallel decompression mode:
+ *   0 = disabled (always serial)
+ *   1 = enabled (always parallel)
+ *   2 = auto (enabled when num_online_cpus >= 2, else serial)
+ * Default: auto (2)
+ */
+#define MINIMEM_PARALLEL_DISABLED	0
+#define MINIMEM_PARALLEL_ENABLED	1
+#define MINIMEM_PARALLEL_AUTO		2
+
+int minimem_parallel_get_mode(void);
+void minimem_parallel_set_mode(int mode);
+bool minimem_parallel_is_active(void);
+
 #endif /* MINIMEM_KERNEL_PARALLEL_H */

@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    remove|purge)
+        if [ -d /run/systemd/system ]; then
+            systemctl stop minimem.service minimem-load.service 2>/dev/null || true
+            systemctl disable minimem.service minimem-load.service 2>/dev/null || true
+        fi
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

@@ -1,0 +1,13 @@
+[Unit]
+Description=MiniMem Transparent Memory Compression
+After=modprobe@minimem.service
+Documentation=https://github.com/marcel-b-roodt/MiniMem
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'echo 1 > /sys/kernel/minimem/scanner_enabled'
+ExecStop=/bin/sh -c 'echo 0 > /sys/kernel/minimem/scanner_enabled'
+
+[Install]
+WantedBy=multi-user.target
