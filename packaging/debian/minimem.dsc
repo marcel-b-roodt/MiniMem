@@ -8,7 +8,6 @@ Build-Depends: debhelper-compat (= 13), meson, gcc, g++, libzstd-dev, dkms
 Standards-Version: 4.7.0
 Homepage: https://github.com/marcel-b-roodt/MiniMem
 DEBTRANSFORM-TAR: minimem-0.6.0.tar.gz
-DEBTRANSFORM-FILES-TAR: debian.tar.gz
 
 Package: libminimem0
 Architecture: any
