@@ -56,10 +56,12 @@ echo ""
 echo "=== Test 2: Sysfs attributes ==="
 REQUIRED_ATTRS="pages_compressed pages_decompressed bytes_saved
 compress_count decompress_count compress_ns_total decompress_ns_total
+compress_avg_ns decompress_avg_ns
 zswap_pages zswap_bytes zswap_saved pool_pages
+parallel_clusters parallel_pages
 scanner_enabled scanner_interval_ms min_savings_pct
 scanner_pages_scanned scanner_pages_idle scanner_pages_compressed scanner_pages_skipped
-hook_faults kernel_patches max_pool_pages"
+hook_faults kernel_patches max_pool_pages parallel_mode"
 
 for attr in $REQUIRED_ATTRS; do
     if [ -f "$SYSDIR/$attr" ]; then
@@ -242,6 +244,45 @@ else
     fail "scanner_interval_ms set failed ($val)"
 fi
 echo "1000" > "$SYSDIR/scanner_interval_ms" 2>/dev/null
+
+# parallel_mode
+val=$(cat "$SYSDIR/parallel_mode" 2>/dev/null)
+case "$val" in
+    auto*) pass "parallel_mode default is auto" ;;
+    2)     pass "parallel_mode default is 2 (auto)" ;;
+    *)     fail "parallel_mode default is '$val' (expected auto/2)" ;;
+esac
+
+echo "0" > "$SYSDIR/parallel_mode" 2>/dev/null
+val=$(cat "$SYSDIR/parallel_mode" 2>/dev/null)
+case "$val" in
+    disabled*) pass "parallel_mode set to disabled" ;;
+    0)         pass "parallel_mode set to 0" ;;
+    *)         fail "parallel_mode set to 0 failed ($val)" ;;
+esac
+
+echo "1" > "$SYSDIR/parallel_mode" 2>/dev/null
+val=$(cat "$SYSDIR/parallel_mode" 2>/dev/null)
+case "$val" in
+    enabled*) pass "parallel_mode set to enabled" ;;
+    1)        pass "parallel_mode set to 1" ;;
+    *)        fail "parallel_mode set to 1 failed ($val)" ;;
+esac
+
+echo "2" > "$SYSDIR/parallel_mode" 2>/dev/null
+val=$(cat "$SYSDIR/parallel_mode" 2>/dev/null)
+case "$val" in
+    auto*) pass "parallel_mode set back to auto" ;;
+    2)     pass "parallel_mode set back to 2" ;;
+    *)     fail "parallel_mode set back to auto failed ($val)" ;;
+esac
+
+echo "auto" > "$SYSDIR/parallel_mode" 2>/dev/null
+val=$(cat "$SYSDIR/parallel_mode" 2>/dev/null)
+case "$val" in
+    auto*) pass "parallel_mode accepts 'auto' string" ;;
+    *)     fail "parallel_mode 'auto' string failed ($val)" ;;
+esac
 
 # ============================================================
 # Test 8: Module unload

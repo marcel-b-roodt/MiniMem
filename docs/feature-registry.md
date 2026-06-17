@@ -75,7 +75,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | VRAM tier management | ✅ Complete | HOT/WARM/COLD/FROZEN tiers; tier advice by idle time; compress/decompress per-buffer |
 | VRAM compression dispatch | ✅ Complete | AI weight algorithms (FP16/BF16 BYTE_STREAM_SPLIT, INT8 row-delta); idle sweep compresses all cold buffers |
 | VRAM stats tracking | ✅ Complete | Cumulative compress/decompress counts, bytes saved, latency totals |
-| VRAM roundtrip tests | ✅ Complete | 7 standalone tests: register/unregister, FP16/INT8 roundtrip, compress_all_idle, stats, tier advice, find_buf |
+| VRAM roundtrip tests | ✅ Complete | 9 standalone tests: register/unregister, FP16/INT8 roundtrip, compress_all_idle, stats, tier advice, tier/format names, touch updates, ctx_create zero capacity, find_buf |
 | AI workload compressor | ✅ Complete | FP16/BF16 BYTE_STREAM_SPLIT and INT8 row-delta; 1.96:1 FP16, 141:1 INT8; all under 10μs decompress |
 | nvCOMP integration | 📋 Planned | Evaluate GPU-parallel bulk compression |
 | Driver integration points | 🔧 In Progress | TTM `amdgpu_vram_mgr` is primary insertion point; mm/ has zero VRAM visibility; CXL Type-3 works today; see research/014 |
