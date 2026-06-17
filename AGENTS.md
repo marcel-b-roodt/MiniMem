@@ -225,7 +225,7 @@ Every release must update the version in **all** of these locations. The `script
 | `packaging/debian/rules` | `DKMS_VERSION := X.Y.Z` |
 | `packaging/debian/changelog` | New entry with version |
 | `packaging/debian/minimem.dsc` | `Version: X.Y.Z-1` and tarball name |
-| `packaging/obs/_service` | Tarball URL |
+| `packaging/obs/_service` | Tarball URL (not used — tarball uploaded directly) |
 
 ### Release workflow
 

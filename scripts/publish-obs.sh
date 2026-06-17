@@ -4,6 +4,10 @@
 # OBS builds packages for Debian, Ubuntu, Fedora, and openSUSE simultaneously.
 # Arch Linux is handled separately via AUR (see publish-aur.sh).
 #
+# This script generates a source tarball from git and uploads it along
+# with all packaging files. OBS cannot reliably download from GitHub,
+# so we upload the tarball directly.
+#
 # First-time setup (manual, one-off):
 #   1. pip install osc
 #   2. Create ~/.config/osc/oscrc with your credentials
@@ -107,10 +111,23 @@ PRJ_XML
         rm -rf "$WORK_DIR"
         mkdir -p "$WORK_DIR"
 
+        # Generate source tarball from git archive
+        TARBALL_NAME="minimem-${VERSION}.tar.gz"
+        echo "Generating source tarball $TARBALL_NAME ..."
+        git -C "$PROJECT_DIR" archive --format=tar.gz \
+            --prefix="MiniMem-${VERSION}/" \
+            -o "$WORK_DIR/$TARBALL_NAME" \
+            "v${VERSION}" 2>/dev/null || {
+            echo "Error: Git tag v${VERSION} not found."
+            echo "Create it first: git tag -s v${VERSION} -m 'MiniMem v${VERSION}'"
+            exit 1
+        }
+
         echo "Checking out OBS package ..."
         osc checkout "$OBS_PROJECT" "minimem" -o "$WORK_DIR/minimem"
 
         echo "Copying packaging files ..."
+        cp "$WORK_DIR/$TARBALL_NAME" "$WORK_DIR/minimem/"
         cp "$PACKAGING_DIR/fedora/minimem.spec" "$WORK_DIR/minimem/"
         cp "$PACKAGING_DIR/fedora/minimem-rpmlintrc" "$WORK_DIR/minimem/"
         cp "$PACKAGING_DIR/debian/control" "$WORK_DIR/minimem/debian.control"
@@ -124,12 +141,19 @@ PRJ_XML
         cp "$PACKAGING_DIR/debian/minimem-dkms-systemd.postinst" "$WORK_DIR/minimem/debian.minimem-dkms-systemd.postinst"
         cp "$PACKAGING_DIR/debian/minimem-dkms-systemd.prerm" "$WORK_DIR/minimem/debian.minimem-dkms-systemd.prerm"
         cp "$PACKAGING_DIR/debian/minimem.dsc" "$WORK_DIR/minimem/"
-        cp "$PACKAGING_DIR/obs/_service" "$WORK_DIR/minimem/"
+        # Do NOT copy _service — we upload the tarball directly instead of
+        # letting OBS try to fetch it from GitHub (which often fails).
+        # If you need OBS to regenerate the tarball, copy _service too and
+        # remove the local tarball.
+
+        echo "Files to upload:"
+        ls -la "$WORK_DIR/minimem/"
 
         (cd "$WORK_DIR/minimem" && \
             osc addremove && \
             osc commit -m "Update MiniMem to $VERSION")
 
+        echo ""
         echo "OBS packaging updated."
         echo "Monitor: https://build.opensuse.org/project/show/$OBS_PROJECT"
         ;;
@@ -157,7 +181,7 @@ PRJ_XML
         echo "Usage: $0 [--setup-guide|--update|--check]"
         echo ""
         echo "  --setup-guide  : Print first-time OBS setup instructions"
-        echo "  --update       : Push updated packaging files to OBS"
+        echo "  --update       : Generate tarball and push packaging to OBS"
         echo "  --check        : Check build status"
         echo ""
         echo "Environment:"
