@@ -159,8 +159,8 @@ static size_t compress_split16(const uint8_t *src, size_t src_len,
 	size_t n_blocks = src_len / MINIMEM_AI_BLOCK_SIZE;
 	size_t half_block = MINIMEM_AI_BLOCK_SIZE / 2;
 
-	uint8_t lo_types[MINIMEM_AI_BLOCKS_PER_PAGE];
-	uint8_t hi_types[MINIMEM_AI_BLOCKS_PER_PAGE];
+	uint8_t lo_types[MINIMEM_AI_BLOCKS_PER_PAGE] = {0};
+	uint8_t hi_types[MINIMEM_AI_BLOCKS_PER_PAGE] = {0};
 	uint8_t lo_uniform[MINIMEM_AI_BLOCKS_PER_PAGE];
 	uint8_t hi_uniform[MINIMEM_AI_BLOCKS_PER_PAGE];
 	uint8_t lo_rmin[MINIMEM_AI_BLOCKS_PER_PAGE];
@@ -249,10 +249,10 @@ static size_t compress_int8(const uint8_t *src, size_t src_len,
 
 	size_t n_blocks = src_len / MINIMEM_AI_BLOCK_SIZE;
 
-	uint8_t types[MINIMEM_AI_BLOCKS_PER_PAGE];
-	uint8_t uniform_vals[MINIMEM_AI_BLOCKS_PER_PAGE];
-	uint8_t range_mins[MINIMEM_AI_BLOCKS_PER_PAGE];
-	uint8_t range_deltas[MINIMEM_AI_BLOCKS_PER_PAGE];
+	uint8_t types[MINIMEM_AI_BLOCKS_PER_PAGE] = {0};
+	uint8_t uniform_vals[MINIMEM_AI_BLOCKS_PER_PAGE] = {0};
+	uint8_t range_mins[MINIMEM_AI_BLOCKS_PER_PAGE] = {0};
+	uint8_t range_deltas[MINIMEM_AI_BLOCKS_PER_PAGE] = {0};
 
 	uint8_t delta_buf[MINIMEM_AI_BLOCK_SIZE];
 
