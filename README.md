@@ -84,7 +84,7 @@ yay -S minimem minimem-dkms minimem-dkms-systemd
 ```
 
 Three packages:
-- **`minimem`** — userspace library (`libminimem.so`, headers, pkg-config)
+- **`minimem`** — userspace library (`libminimem.so`, headers, pkg-config) + CLI tool
 - **`minimem-dkms`** — kernel module (DKMS, auto-rebuilds on kernel update)
 - **`minimem-dkms-systemd`** — systemd units for auto-load and auto-enable
 
@@ -113,25 +113,37 @@ sudo ./scripts/dkms-install.sh --patches   # also apply kernel patches
 ### Verify it's working
 
 ```bash
-cat /sys/kernel/minimem/scanner_enabled   # should show 0 or 1
-cat /sys/kernel/minimem/kernel_patches     # 0=kprobe, 1=patched kernel
-./scripts/minimem-stats                    # global summary
+minimem status              # show module status and global stats
+minimem config              # show all configuration settings
 ```
 
 ---
 
 ## Monitoring and Statistics
 
+The `minimem` CLI is installed to `/usr/bin/minimem` (or `/usr/local/bin/minimem` with local-install):
+
+```bash
+minimem status              # global stats (default command)
+minimem config              # show all configuration settings
+minimem config scanner_enabled 1   # enable scanner (root)
+minimem config parallel_mode 2     # auto-detect parallel (root)
+minimem summary             # anonymized UID-level summary
+minimem per-process         # detailed per-PID view (root)
+minimem watch               # live 2s dashboard
+minimem load                # load kernel module (root)
+minimem unload              # unload kernel module (root)
+minimem reset               # reset counters (root)
+minimem version             # show version
+minimem help                # full usage
+```
+
 ### Global stats (always available)
 
 ```bash
-# Quick summary
-./scripts/minimem-stats
+minimem status
 
-# All raw sysfs attributes
-cat /sys/kernel/minimem/*
-
-# Specific attributes
+# Raw sysfs attributes
 cat /sys/kernel/minimem/pages_compressed
 cat /sys/kernel/minimem/bytes_saved
 cat /sys/kernel/minimem/decompress_avg_ns
@@ -146,24 +158,22 @@ Per-process statistics are **off by default** for zero overhead. Enable them to 
 
 ```bash
 # Enable per-process tracking
-echo 1 | sudo tee /sys/kernel/minimem/per_process_stats
+sudo minimem config per_process_stats 1
 
 # Anonymized summary (world-readable, UID-level only, no PIDs or process names)
-cat /sys/kernel/minimem/stats_summary
+minimem summary
 
 # Detailed per-PID view (root only)
-sudo cat /sys/kernel/debug/minimem/per_process
+minimem per-process
 
-# Use the stats tool
-./scripts/minimem-stats --summary          # anonymized UID breakdown
-./scripts/minimem-stats --per-process       # detailed per-PID (root)
-./scripts/minimem-stats --watch             # live 2s update
+# Live dashboard
+minimem watch
 
 # Configure how many UIDs appear in summary (1-20, default 5)
-echo 10 | sudo tee /sys/kernel/minimem/per_process_top_n
+sudo minimem config per_process_top_n 10
 
 # Disable (clears all per-process data, restores zero overhead)
-echo 0 | sudo tee /sys/kernel/minimem/per_process_stats
+sudo minimem config per_process_stats 0
 ```
 
 Per-process stats expose:
@@ -238,19 +248,19 @@ sudo systemctl disable minimem.service minimem-load.service
 
 ```bash
 # Enable the scanner (start compressing idle pages)
-echo 1 | sudo tee /sys/kernel/minimem/scanner_enabled
+sudo minimem config scanner_enabled 1
 
 # Set scanner interval (milliseconds, 100–60000)
-echo 2000 | sudo tee /sys/kernel/minimem/scanner_interval_ms
+sudo minimem config scanner_interval_ms 2000
 
 # Set minimum savings threshold (percent, 0–90)
-echo 20 | sudo tee /sys/kernel/minimem/min_savings_pct
+sudo minimem config min_savings_pct 20
 
 # Limit pool size (0 = unlimited)
-echo 10000 | sudo tee /sys/kernel/minimem/max_pool_pages
+sudo minimem config max_pool_pages 10000
 
 # Parallel decompression: 0=off, 1=on, 2=auto (default)
-echo 2 | sudo tee /sys/kernel/minimem/parallel_mode
+sudo minimem config parallel_mode 2
 ```
 
 ---
@@ -267,10 +277,10 @@ MiniMem is designed so that **no data is ever at risk**:
 
 ```bash
 # Stop the scanner (module stays loaded, no new compression)
-echo 0 | sudo tee /sys/kernel/minimem/scanner_enabled
+sudo minimem config scanner_enabled 0
 
 # Unload the module entirely
-sudo rmmod minimem
+sudo minimem unload
 ```
 
 ### Disable auto-load on boot
@@ -345,8 +355,8 @@ Even actively-queried data benefits: sequential scans touch pages briefly then m
 
 | Channel | Package | Status |
 |---|---|---|
-| AUR | `minimem` (library), `minimem-dkms` (kernel module), `minimem-dkms-systemd` (systemd) | ✅ PKGBUILDs ready |
-| OBS | `minimem` (Fedora, Debian, Ubuntu, openSUSE) | ✅ Packaging ready, builds succeeding |
+| AUR | `minimem` (library + CLI), `minimem-dkms` (kernel module), `minimem-dkms-systemd` (systemd) | ✅ PKGBUILDs ready |
+| OBS | `minimem` (Fedora, Debian, Ubuntu, openSUSE) | 🔧 Packaging ready, fixing openSUSE build |
 | DKMS | `minimem-dkms` | ✅ Auto-rebuild per kernel update |
 | Local | `scripts/local-install.sh` | ✅ Build + install + systemd on Arch |
 

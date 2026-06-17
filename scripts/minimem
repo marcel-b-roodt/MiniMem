@@ -1,0 +1,330 @@
+#!/bin/bash
+# minimem — CLI for MiniMem transparent memory compression
+#
+# Usage:
+#   minimem status              # Show module status and global stats
+#   minimem stats               # Same as status (alias)
+#   minimem config              # Show all writable settings
+#   minimem config <key> <val>  # Set a configuration value (requires root)
+#   minimem per-process         # Show detailed per-process stats (root)
+#   minimem summary             # Show anonymized UID-level summary
+#   minimem watch               # Continuous 2s refresh
+#   minimem load                # Load the kernel module
+#   minimem unload              # Unload the kernel module
+#   minimem reset               # Reset compression counters
+
+set -euo pipefail
+
+SYSDIR="/sys/kernel/minimem"
+DEBUGDIR="/sys/kernel/debug/minimem"
+VERSION="0.8.0"
+
+# ── Colour helpers ──────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+info()  { echo -e "${GREEN}[minimem]${NC} $*"; }
+warn()  { echo -e "${YELLOW}[minimem]${NC} $*"; }
+error() { echo -e "${RED}[minimem]${NC} $*" >&2; }
+
+fmt_bytes() {
+    local bytes=$1
+    if [ "$bytes" -ge 1073741824 ] 2>/dev/null; then
+        echo "$(echo "scale=1; $bytes / 1073741824" | bc)G"
+    elif [ "$bytes" -ge 1048576 ] 2>/dev/null; then
+        echo "$(echo "scale=1; $bytes / 1048576" | bc)M"
+    elif [ "$bytes" -ge 1024 ] 2>/dev/null; then
+        echo "$(echo "scale=1; $bytes / 1024" | bc)K"
+    else
+        echo "${bytes}B"
+    fi
+}
+
+read_sysfs() {
+    cat "$SYSDIR/$1" 2>/dev/null || echo "N/A"
+}
+
+write_sysfs() {
+    local key="$1"
+    local val="$2"
+    if [ "$(id -u)" -ne 0 ]; then
+        error "Writing to $key requires root. Use: sudo minimem config $key $val"
+        exit 1
+    fi
+    echo "$val" > "$SYSDIR/$key" 2>/dev/null || {
+        error "Failed to write '$val' to $key"
+        exit 1
+    }
+    info "$key = $(read_sysfs "$key")"
+}
+
+check_module() {
+    if [ ! -d "$SYSDIR" ]; then
+        echo "MiniMem module not loaded"
+        echo "  Load with: minimem load"
+        echo "  Or:        sudo modprobe minimem"
+        exit 1
+    fi
+}
+
+# ── Commands ────────────────────────────────────────────────────────
+
+cmd_status() {
+    check_module
+
+    local pages_cmp=$(read_sysfs pages_compressed)
+    local pages_decmp=$(read_sysfs pages_decompressed)
+    local bytes_saved=$(read_sysfs bytes_saved)
+    local cmp_count=$(read_sysfs compress_count)
+    local decmp_count=$(read_sysfs decompress_count)
+    local cmp_avg=$(read_sysfs compress_avg_ns)
+    local decmp_avg=$(read_sysfs decompress_avg_ns)
+    local zswap_pages=$(read_sysfs zswap_pages)
+    local zswap_saved=$(read_sysfs zswap_saved)
+    local pool_pages=$(read_sysfs pool_pages)
+    local scanner=$(read_sysfs scanner_enabled)
+    local patches=$(read_sysfs kernel_patches)
+    local par_mode=$(read_sysfs parallel_mode)
+    local hook_faults=$(read_sysfs hook_faults)
+    local pp=$(read_sysfs per_process_stats)
+
+    echo -e "${BOLD}=== MiniMem v$VERSION ===${NC}"
+    echo ""
+    echo -e "  ${CYAN}Compression:${NC}"
+    echo "    Pages compressed:     $pages_cmp"
+    echo "    Pages decompressed:  $pages_decmp"
+    echo "    Bytes saved:          $(fmt_bytes ${bytes_saved})"
+    echo "    Avg compress time:    ${cmp_avg} ns"
+    echo "    Avg decompress time: ${decmp_avg} ns"
+    echo ""
+    echo -e "  ${CYAN}Pool:${NC}"
+    echo "    Compressed pages:     $zswap_pages"
+    echo "    Bytes saved (pool):   $(fmt_bytes ${zswap_saved})"
+    echo "    Pool memory pages:    $pool_pages"
+    echo ""
+    echo -e "  ${CYAN}Scanner:${NC}"
+    echo "    Enabled:             $scanner"
+    echo "    Kernel patches:      $patches"
+    echo "    Hook faults:         $hook_faults"
+    echo "    Parallel mode:       $par_mode"
+    echo ""
+    echo -e "  ${CYAN}Per-process stats:${NC}"
+    echo "    Enabled:             $pp"
+}
+
+cmd_config() {
+    if [ $# -eq 0 ]; then
+        check_module
+        echo -e "${BOLD}=== MiniMem Configuration ===${NC}"
+        echo ""
+        for key in scanner_enabled scanner_interval_ms min_savings_pct max_pool_pages parallel_mode per_process_stats per_process_top_n; do
+            local val=$(read_sysfs "$key")
+            printf "  %-25s %s\n" "$key" "$val"
+        done
+        echo ""
+        echo "Writable settings (use: minimem config <key> <value>):"
+        echo "  scanner_enabled     0 or 1        Enable/disable background scanner"
+        echo "  scanner_interval_ms 100-60000     Scanner sweep interval in milliseconds"
+        echo "  min_savings_pct     0-100          Minimum compression savings %%"
+        echo "  max_pool_pages      0-2^31         Maximum compressed pages in pool (0=unlimited)"
+        echo "  parallel_mode      0, 1, or 2     0=off, 1=on, 2=auto-detect"
+        echo "  per_process_stats   0 or 1        Enable/disable per-process tracking"
+        echo "  per_process_top_n  1-20           Number of processes in summary"
+        return
+    fi
+
+    local key="$1"
+    local val="$2"
+    check_module
+    write_sysfs "$key" "$val"
+}
+
+cmd_per_process() {
+    check_module
+
+    local pp=$(read_sysfs per_process_stats)
+    if [ "$pp" = "0" ]; then
+        echo "Per-process stats are disabled. Enable with:"
+        echo "  sudo minimem config per_process_stats 1"
+        exit 0
+    fi
+
+    if [ ! -f "$DEBUGDIR/per_process" ]; then
+        echo "per_process debugfs entry not available"
+        echo "  Is debugfs mounted? (mount -t debugfs none /sys/kernel/debug)"
+        exit 1
+    fi
+
+    echo -e "${BOLD}=== MiniMem Per-Process Stats ===${NC}"
+    echo ""
+    cat "$DEBUGDIR/per_process"
+}
+
+cmd_summary() {
+    check_module
+
+    if [ ! -f "$SYSDIR/stats_summary" ]; then
+        error "stats_summary not available (module not loaded?)"
+        exit 1
+    fi
+
+    echo -e "${BOLD}=== MiniMem Stats Summary (anonymized) ===${NC}"
+    echo ""
+    cat "$SYSDIR/stats_summary"
+}
+
+cmd_watch() {
+    check_module
+    while true; do
+        clear
+        cmd_status
+        echo ""
+        cmd_summary 2>/dev/null || true
+        sleep 2
+    done
+}
+
+cmd_load() {
+    if lsmod 2>/dev/null | grep -q "^minimem "; then
+        info "Module already loaded"
+        return
+    fi
+
+    if [ "$(id -u)" -ne 0 ]; then
+        error "Loading module requires root. Use: sudo minimem load"
+        exit 1
+    fi
+
+    modprobe minimem 2>/dev/null || {
+        local kmod
+        kmod=$(find /lib/modules/"$(uname -r)"/{updates,extra,kernel/drivers/minimem} -name 'minimem.ko*' 2>/dev/null | head -1)
+        if [ -n "$kmod" ]; then
+            insmod "$kmod"
+        else
+            error "Could not find minimem.ko — is the DKMS module installed?"
+            exit 1
+        fi
+    }
+    info "Module loaded"
+}
+
+cmd_unload() {
+    if ! lsmod 2>/dev/null | grep -q "^minimem "; then
+        info "Module not loaded"
+        return
+    fi
+
+    if [ "$(id -u)" -ne 0 ]; then
+        error "Unloading module requires root. Use: sudo minimem unload"
+        exit 1
+    fi
+
+    echo 0 > "$SYSDIR/scanner_enabled" 2>/dev/null || true
+    sleep 0.5
+    modprobe -r minimem 2>/dev/null || rmmod minimem 2>/dev/null || {
+        error "Could not unload module (may be in use)"
+        echo "  Stop processes using it and try: sudo minimem unload"
+        exit 1
+    }
+    info "Module unloaded"
+}
+
+cmd_reset() {
+    check_module
+    if [ "$(id -u)" -ne 0 ]; then
+        error "Resetting counters requires root. Use: sudo minimem reset"
+        exit 1
+    fi
+
+    for counter in pages_compressed pages_decompressed bytes_saved compress_count decompress_count compress_ns_total decompress_ns_total; do
+        echo 0 > "$SYSDIR/$counter" 2>/dev/null || true
+    done
+    info "Counters reset"
+}
+
+cmd_version() {
+    echo "minimem $VERSION"
+    local mod_ver
+    mod_ver=$(read_sysfs version 2>/dev/null || echo "module not loaded")
+    echo "kernel module: $mod_ver"
+}
+
+cmd_help() {
+    echo "minimem — CLI for MiniMem transparent memory compression"
+    echo ""
+    echo "Usage: minimem <command> [options]"
+    echo ""
+    echo "Commands:"
+    echo "  status                Show module status and global stats (default)"
+    echo "  stats                 Alias for status"
+    echo "  config                Show all configuration settings"
+    echo "  config <key> <val>   Set a configuration value (root)"
+    echo "  per-process           Show detailed per-process stats (root)"
+    echo "  summary               Show anonymized UID-level summary"
+    echo "  watch                 Continuous 2s refresh of stats"
+    echo "  load                  Load the kernel module (root)"
+    echo "  unload                Unload the kernel module (root)"
+    echo "  reset                 Reset compression counters (root)"
+    echo "  version               Show version info"
+    echo "  help                  This help"
+    echo ""
+    echo "Writable settings (use: minimem config <key> <value>):"
+    echo "  scanner_enabled       0 or 1"
+    echo "  scanner_interval_ms   100-60000"
+    echo "  min_savings_pct       0-100"
+    echo "  max_pool_pages        0 or positive integer (0=unlimited)"
+    echo "  parallel_mode          0=off, 1=on, 2=auto"
+    echo "  per_process_stats     0 or 1"
+    echo "  per_process_top_n     1-20"
+    echo ""
+    echo "Examples:"
+    echo "  minimem                        # check status"
+    echo "  minimem config                  # see all settings"
+    echo "  sudo minimem config scanner_enabled 1   # enable scanner"
+    echo "  sudo minimem config parallel_mode 2     # auto-detect parallel"
+    echo "  minimem watch                  # live dashboard"
+}
+
+# ── Main ────────────────────────────────────────────────────────────
+case "${1:-status}" in
+    status|stats|global|show)
+        cmd_status
+        ;;
+    config|set|cfg)
+        shift || true
+        cmd_config "$@"
+        ;;
+    per-process|perprocess|pp)
+        cmd_per_process
+        ;;
+    summary|summ)
+        cmd_summary
+        ;;
+    watch|w)
+        cmd_watch
+        ;;
+    load)
+        cmd_load
+        ;;
+    unload|rm|remove)
+        cmd_unload
+        ;;
+    reset|clear)
+        cmd_reset
+        ;;
+    version|-v|--version)
+        cmd_version
+        ;;
+    help|-h|--help)
+        cmd_help
+        ;;
+    *)
+        echo "Unknown command: $1"
+        echo "Use 'minimem help' for usage information"
+        exit 1
+        ;;
+esac

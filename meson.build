@@ -108,6 +108,12 @@ install_headers(
     subdir : 'minimem',
 )
 
+install_data(
+    'scripts/minimem',
+    install_mode : 'r-xr-xr-x',
+    install_dir : get_option('bindir'),
+)
+
 vram_lib = static_library('minimem_vram',
     sources : 'src/vram/minimem_vram.c',
     include_directories : [minimem_inc],

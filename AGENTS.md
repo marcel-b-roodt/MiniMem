@@ -220,6 +220,7 @@ Every release must update the version in **all** of these locations. The `script
 | `packaging/aur/minimem-dkms-systemd/.SRCINFO` | `pkgver = X.Y.Z` and source URL |
 | `packaging/aur/minimem-dkms-systemd/minimem-dkms-systemd.install` | version references |
 | `scripts/local-install.sh` | `VERSION="X.Y.Z"` |
+| `scripts/minimem` | `VERSION="X.Y.Z"` |
 | `packaging/fedora/minimem.spec` | `Version: X.Y.Z` and changelog |
 | `packaging/debian/control` | `minimem-dkms-systemd` depends version |
 | `packaging/debian/rules` | `DKMS_VERSION := X.Y.Z` |
@@ -295,9 +296,9 @@ sudo ./scripts/local-install.sh
 sudo ./scripts/local-install.sh --status
 
 # Run the stats tool
-./scripts/minimem-stats
-./scripts/minimem-stats --summary
-sudo ./scripts/minimem-stats --per-process
+minimem status
+minimem summary
+sudo minimem per-process
 
 # Run kernel tests
 ./vm-test-minimem.sh

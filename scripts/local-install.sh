@@ -239,7 +239,7 @@ STUB
 
         # ── 3. Userspace library ────────────────────────────────────
         if command -v meson &>/dev/null; then
-            info "Building userspace library..."
+            info "Building userspace library and CLI..."
 
             BUILD_DIR="/tmp/minimem-meson-build"
             rm -rf "$BUILD_DIR"
@@ -248,10 +248,16 @@ STUB
             meson install -C "$BUILD_DIR"
             ldconfig
 
-            info "Userspace library installed"
+            info "Userspace library and CLI installed"
         else
             warn "meson not found — skipping userspace library"
             warn "Install with: sudo pacman -S meson && sudo ./scripts/local-install.sh"
+        fi
+
+        # ── 3b. CLI tool (if not installed by meson) ─────────────────
+        if [ ! -e /usr/local/bin/minimem ] && [ ! -e /usr/bin/minimem ]; then
+            install -Dm755 "$PROJECT_DIR/scripts/minimem" /usr/local/bin/minimem
+            info "CLI installed to /usr/local/bin/minimem"
         fi
     fi
 
@@ -353,8 +359,9 @@ cmd_uninstall() {
     rm -f /usr/lib/libminimem_static.a
     rm -f /usr/lib/pkgconfig/minimem.pc
     rm -rf /usr/include/minimem
+    rm -f /usr/local/bin/minimem
     ldconfig 2>/dev/null || true
-    info "Userspace library removed"
+    info "Userspace library and CLI removed"
 
     echo ""
     info "=== MiniMem Uninstall Complete ==="

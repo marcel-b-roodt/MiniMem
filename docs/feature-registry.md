@@ -64,6 +64,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | Systemd auto-load/enable | ✅ Complete | minimem-load.service (modprobe), minimem.service (scanner_enabled=1), modules-load.d/minimem.conf; packaged in RPM/Debian/AUR |
 | ZRAM coexistence | ✅ Complete | MiniMem and zram are complementary (different page types); MiniMem uses separate zsmalloc pool; kprobe on do_swap_page adds minimal overhead to zram faults |
 | CI/CD (GitHub Actions) | ✅ Complete | 3 workflows: library build+test (gcc 12/14, Criterion), kernel module build (Ubuntu 22.04/24.04), packaging verification (DKMS+Debian+Fedora+AUR); Dependabot for Actions |
+| CLI tool (`minimem`) | ✅ Complete | Shell CLI: status, config, per-process, summary, watch, load, unload, reset; installed to /usr/bin via meson; replaces minimem-stats |
 
 ---
 
@@ -77,7 +78,8 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | VRAM stats tracking | ✅ Complete | Cumulative compress/decompress counts, bytes saved, latency totals |
 | VRAM roundtrip tests | ✅ Complete | 9 standalone tests: register/unregister, FP16/INT8 roundtrip, compress_all_idle, stats, tier advice, tier/format names, touch updates, ctx_create zero capacity, find_buf |
 | AI workload compressor | ✅ Complete | FP16/BF16 BYTE_STREAM_SPLIT and INT8 row-delta; 1.96:1 FP16, 141:1 INT8; all under 10μs decompress |
-| Per-process stats | 🔧 In Progress | Optional debugfs per-process compression stats; sysfs toggle + anonymized summary; see research/023 |
+| Per-process stats | ✅ Complete | Optional debugfs per-process compression stats; sysfs toggle + anonymized summary; see research/023 |
+| CLI tool (`minimem`) | ✅ Complete | status, config, per-process, summary, watch, load, unload, reset, version, help |
 | nvCOMP integration | 📋 Planned | Evaluate GPU-parallel bulk compression |
 | Driver integration points | 🔧 In Progress | TTM `amdgpu_vram_mgr` is primary insertion point; mm/ has zero VRAM visibility; CXL Type-3 works today; see research/014 |
 | Userspace API | 📋 Planned | ioctl/sysfs for compression policy advice |

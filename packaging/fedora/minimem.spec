@@ -20,8 +20,18 @@ BuildRequires:  libzstd-devel
 
 %description
 MiniMem provides lossless compression algorithms optimised for memory pages,
-AI weights, and structured data. This metapackage pulls in the library
-and DKMS kernel module.
+AI weights, and structured data. This metapackage pulls in the library,
+CLI tool, and DKMS kernel module.
+
+%package -n minimem-cli
+Summary:        CLI tool for MiniMem memory compression
+License:        GPL-2.0-only
+Requires:       bc
+Requires:       minimem-dkms
+
+%description -n minimem-cli
+Command-line tool for monitoring and configuring MiniMem transparent
+memory compression. Shows stats, toggles settings, manages the module.
 
 %package -n libminimem0
 Summary:        MiniMem compression library
@@ -208,6 +218,9 @@ dkms remove minimem/%{version} --all 2>/dev/null || true
 %{_libdir}/libminimem.so
 %{_libdir}/libminimem_static.a
 %{_libdir}/pkgconfig/minimem.pc
+
+%files -n minimem-cli
+%{_bindir}/minimem
 
 %files -n minimem-dkms
 %attr(755,root,root) /usr/src/minimem-%{version}/install.sh

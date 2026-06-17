@@ -39,3 +39,10 @@ Depends: minimem-dkms (= ${binary:Version}), systemd, ${misc:Depends}
 Description: MiniMem auto-load and auto-enable systemd units
  Systemd units to automatically load the minimem kernel module
  and enable the scanner on boot.
+
+Package: minimem-cli
+Architecture: all
+Depends: bc, minimem-dkms, ${misc:Depends}
+Description: CLI tool for MiniMem memory compression
+ Command-line tool for monitoring and configuring MiniMem transparent
+ memory compression. Shows stats, toggles settings, manages the module.

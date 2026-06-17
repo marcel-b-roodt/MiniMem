@@ -1,12 +1,14 @@
-## Near-Term — Parallel Auto-Detect, Systemd, Packaging
+## Near-Term — Packaging & CLI
 
-- [x] Add parallel decompression auto-detect (skip parallel on single-CPU systems)
-- [x] Add parallel_mode sysfs toggle (0=disabled, 1=enabled, 2=auto)
-- [x] Create systemd units for auto-load and auto-enable
-- [x] Package systemd units in RPM/Debian/AUR
-- [x] Update all packaging version numbers to 0.7.0
-- [x] Add zram coexistence documentation (research/004, research/021)
-- [x] Add kernel upstreaming roadmap (research/022, roadmap)
+- [x] Fix OBS spec for openSUSE Tumbleweed (meson macros, systemd macros, pkg-config, kernel-devel)
+- [x] Fix spec ninja -j flag duplication
+- [x] Fix spec changelog day-of-week errors
+- [x] Create `minimem` CLI tool (replaces minimem-stats)
+- [x] Add CLI to meson build install_data
+- [x] Update local-install.sh to install CLI
+- [x] Update packaging (RPM minimem-cli, Debian minimem-cli, AUR)
+- [x] Update README to use CLI instead of raw sysfs
+- [ ] Publish fixed spec to OBS and verify openSUSE build
 
 ## Near-Term — Kernel Module (Stage 1 remaining)
 
