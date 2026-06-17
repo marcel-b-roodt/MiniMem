@@ -117,6 +117,7 @@ PRJ_XML
         cp "$PACKAGING_DIR/debian/changelog" "$WORK_DIR/minimem/debian.changelog"
         cp "$PACKAGING_DIR/debian/compat" "$WORK_DIR/minimem/debian.compat"
         cp "$PACKAGING_DIR/debian/copyright" "$WORK_DIR/minimem/debian.copyright"
+        cp "$PACKAGING_DIR/debian/minimem.dsc" "$WORK_DIR/minimem/"
         cp "$PACKAGING_DIR/obs/_service" "$WORK_DIR/minimem/"
 
         (cd "$WORK_DIR/minimem" && \

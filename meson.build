@@ -1,5 +1,5 @@
 project('minimem', 'c', 'cpp',
-    version : '0.1.0',
+    version : '0.6.0',
     default_options : [
         'c_std=c11',
         'cpp_std=c++14',
@@ -13,7 +13,7 @@ cc = meson.get_compiler('c')
 zstd_dep = dependency('libzstd', required : true)
 
 minimem_version_major = '0'
-minimem_version_minor = '1'
+minimem_version_minor = '6'
 minimem_version_patch = '0'
 minimem_version = '@0@.@1@.@2@'.format(minimem_version_major, minimem_version_minor, minimem_version_patch)
 
@@ -37,7 +37,11 @@ minimem_lib_sources = [
 
 lzsse8_cpp = files('src/lib/vendor/lzsse8/lzsse8.cpp')
 
-lzsse8_cpp_args = ['-msse4.1', '-Wno-unused-but-set-variable', '-Wno-sign-compare', '-Wno-unused-variable', '-Wno-unknown-pragmas']
+lzsse8_cpp_args = ['-Wno-unused-but-set-variable', '-Wno-sign-compare', '-Wno-unused-variable', '-Wno-unknown-pragmas']
+
+if host_machine.cpu_family() == 'x86' or host_machine.cpu_family() == 'x86_64'
+    lzsse8_cpp_args += ['-msse4.1']
+endif
 
 minimem_inc = include_directories('src')
 

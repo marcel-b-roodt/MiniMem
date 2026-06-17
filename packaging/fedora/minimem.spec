@@ -3,7 +3,7 @@ Version:        0.6.0
 Release:        1%{?dist}
 Summary:        Transparent lossless memory compression library
 
-License:        GPL-2.0-only
+License:        GPL-2.0-only AND BSD-2-Clause AND BSD-3-Clause
 URL:            https://github.com/marcel-b-roodt/MiniMem
 Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz#/minimem-%{version}.tar.gz
 
@@ -17,19 +17,23 @@ MiniMem provides lossless compression algorithms optimised for memory pages,
 AI weights, and structured data. This metapackage pulls in the library
 and DKMS kernel module.
 
-%package -n libminimem
+%package -n libminimem0
 Summary:        MiniMem compression library
 License:        GPL-2.0-only AND BSD-3-Clause
-Requires:       libzstd
+Requires:       libzstd%{?_isa}
 
-%description -n libminimem
+%description -n libminimem0
 Shared library providing lossless compression algorithms optimised for
 memory pages, AI weights, and structured data.
 
+%post -n libminimem0 -p /sbin/ldconfig
+%postun -n libminimem0 -p /sbin/ldconfig
+
 %package -n libminimem-devel
 Summary:        Development files for MiniMem compression library
-Requires:       libminimem%{?_isa} = %{version}-%{release}
-Requires:       libzstd-devel
+License:        GPL-2.0-only AND BSD-3-Clause
+Requires:       libminimem0%{?_isa} = %{version}-%{release}
+Requires:       libzstd-devel%{?_isa}
 
 %description -n libminimem-devel
 Headers, static library, and pkg-config file for MiniMem compression library.
@@ -40,7 +44,8 @@ License:        GPL-2.0-only
 Requires:       dkms
 Requires:       gcc
 Requires:       kernel-devel
-BuildRequires:  dkms
+BuildArch:      noarch
+ExclusiveArch:  x86_64 aarch64
 
 %description -n minimem-dkms
 Transparent in-memory page compression kernel module.
@@ -77,7 +82,7 @@ for comp in same_page bdi wkdm wkdm64 block_class lz4_wrap delta; do
     install -m 644 src/lib/compressors/$comp.* $DKMS_DIR/lib/compressors/
 done
 
-install -m 644 patches/minimem-*.patch $DKMS_DIR/patches/
+install -m 644 patches/minimem-*.patch $DKMS_DIR/patches/ || true
 
 for stub in string.h stdbool.h stdint.h stddef.h stdlib.h limits.h; do
     install -m 644 /dev/null "$DKMS_DIR/include/$stub"
@@ -150,9 +155,9 @@ dkms install minimem/%{version} -k $(uname -r) 2>/dev/null || true
 %preun -n minimem-dkms
 dkms remove minimem/%{version} --all 2>/dev/null || true
 
-%files -n libminimem
-%{_libdir}/libminimem.so.*
+%files -n libminimem0
 %license LICENSE
+%{_libdir}/libminimem.so.*
 
 %files -n libminimem-devel
 %{_includedir}/minimem/
@@ -166,5 +171,5 @@ dkms remove minimem/%{version} --all 2>/dev/null || true
 /usr/src/minimem-%{version}/
 
 %changelog
-* Tue Jun 16 2026 Marcel Broodt <minimem@noreply.github.com> - 0.6.0-1
+* Tue Jun 17 2026 Marcel Broodt <minimem@noreply.github.com> - 0.6.0-1
 - Initial package
