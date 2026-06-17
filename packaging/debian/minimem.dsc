@@ -4,7 +4,7 @@ Version: 0.6.0-1
 Maintainer: Marcel Broodt <minimem@noreply.github.com>
 Section: utils
 Priority: optional
-Build-Depends: debhelper-compat (= 13), meson, gcc, g++, libzstd-dev, dkms
+Build-Depends: debhelper-compat (= 13), meson, pkg-config, gcc, g++, libzstd-dev, dkms
 Standards-Version: 4.7.0
 Homepage: https://github.com/marcel-b-roodt/MiniMem
 DEBTRANSFORM-TAR: minimem-0.6.0.tar.gz
