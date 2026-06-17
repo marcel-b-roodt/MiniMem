@@ -97,6 +97,47 @@ install_headers(
     subdir : 'minimem',
 )
 
+vram_lib = static_library('minimem_vram',
+    sources : 'src/vram/minimem_vram.c',
+    include_directories : [minimem_inc],
+    link_with : minimem_lib,
+    install : false,
+)
+
+vram_dep = declare_dependency(
+    link_with : vram_lib,
+    include_directories : minimem_inc,
+    dependencies : [minimem_dep_static],
+)
+
+vram_test_exe = executable('minimem_vram_test',
+    sources : [
+        'tests/vram/test_vram_roundtrip.c',
+        'src/vram/minimem_vram.c',
+        'src/lib/test_data.c',
+        'src/lib/registry.c',
+        'src/lib/compressors/same_page.c',
+        'src/lib/compressors/bdi.c',
+        'src/lib/compressors/wkdm.c',
+        'src/lib/compressors/lz4_wrap.c',
+        'src/lib/compressors/lzsse8.c',
+        'src/lib/compressors/zstd_dict.c',
+        'src/lib/compressors/delta.c',
+        'src/lib/compressors/wkdm64.c',
+        'src/lib/compressors/block_class.c',
+        'src/lib/compressors/ai_weights.c',
+        'src/lib/advisor.c',
+        'src/lib/vendor/lz4/lz4.c',
+        'src/lib/vendor/lz4/lz4hc.c',
+        'src/lib/vendor/lzsse8/lzsse8.cpp',
+    ],
+    include_directories : [minimem_inc, include_directories('src'), include_directories('tests')],
+    c_args : ['-DMINIMEM_BUILD', '-D_GNU_SOURCE'],
+    cpp_args : lzsse8_cpp_args,
+    dependencies : [zstd_dep],
+    install : false,
+)
+
 criterion_dep = dependency('criterion', required : get_option('tests'))
 
 if criterion_dep.found()
@@ -138,28 +179,28 @@ if criterion_dep.found()
         install : false,
     )
 
-    bench_exe = executable('minimem_bench',
-        sources : [
-            'reports/bench_runner.c',
-            'src/lib/test_data.c',
-            'src/lib/registry.c',
-            'src/lib/compressors/same_page.c',
-            'src/lib/compressors/bdi.c',
-            'src/lib/compressors/wkdm.c',
-            'src/lib/compressors/lz4_wrap.c',
-            'src/lib/compressors/lzsse8.c',
-            'src/lib/compressors/zstd_dict.c',
-            'src/lib/compressors/delta.c',
-            'src/lib/compressors/wkdm64.c',
-            'src/lib/compressors/block_class.c',
-            'src/lib/compressors/ai_weights.c',
-            'src/lib/advisor.c',
-            'src/lib/vendor/lz4/lz4.c',
-            'src/lib/vendor/lz4/lz4hc.c',
-            'tests/lib/bench_harness.c',
-        ],
-        include_directories : [include_directories('src'), include_directories('tests')],
-        dependencies : [zstd_dep],
-        install : false,
-    )
+     bench_exe = executable('minimem_bench',
+         sources : [
+             'reports/bench_runner.c',
+             'src/lib/test_data.c',
+             'src/lib/registry.c',
+             'src/lib/compressors/same_page.c',
+             'src/lib/compressors/bdi.c',
+             'src/lib/compressors/wkdm.c',
+             'src/lib/compressors/lz4_wrap.c',
+             'src/lib/compressors/lzsse8.c',
+             'src/lib/compressors/zstd_dict.c',
+             'src/lib/compressors/delta.c',
+             'src/lib/compressors/wkdm64.c',
+             'src/lib/compressors/block_class.c',
+             'src/lib/compressors/ai_weights.c',
+             'src/lib/advisor.c',
+             'src/lib/vendor/lz4/lz4.c',
+             'src/lib/vendor/lz4/lz4hc.c',
+             'tests/lib/bench_harness.c',
+         ],
+         include_directories : [include_directories('src'), include_directories('tests')],
+         dependencies : [zstd_dep],
+         install : false,
+     )
 endif

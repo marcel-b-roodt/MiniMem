@@ -1,144 +1,146 @@
 #!/bin/bash
-# scripts/publish-aur.sh — Publish MiniMem packages to the AUR
+# scripts/publish-aur.sh — Publish MiniMem to AUR (Arch Linux)
 #
-# Prerequisites:
-#   - git tag v$VERSION exists on GitHub (for source tarball URL)
-#   - ssh key configured for aur.archlinux.org
-#   - makepkg installed (Arch Linux)
+# AUR packages: minimem (library) and minimem-dkms (kernel module)
 #
-# Usage: ./scripts/publish-aur.sh [minimem|minimem-dkms|both]
+# First-time setup (manual, one-off):
+#   1. Create an AUR account at https://aur.archlinux.org/register
+#   2. Upload your SSH key at https://aur.archlinux.org/account/
+#   3. Clone the AUR packages (initial):
+#        AUR_SSH_USER=you ./scripts/publish-aur.sh --init
 #
-# What it does:
-#   1. Clones the AUR repos (or pulls if they exist)
-#   2. Generates up-to-date PKGBUILD and .SRCINFO
-#   3. Runs makepkg --verifysource to check the source tarball resolves
-#   4. Commits and pushes to AUR
-#
-# After publishing, users can install via:
-#   yay -S minimem          # library
-#   yay -S minimem-dkms     # kernel module
+# After setup:
+#   AUR_SSH_USER=you ./scripts/publish-aur.sh --update
+#   ./scripts/publish-aur.sh --check
+#   ./scripts/publish-aur.sh --setup-guide
 
-set -e
+set -euo pipefail
 
 VERSION="0.6.0"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-AUR_BASE="${AUR_BASE:-$HOME/aur}"
+AUR_SSH_USER="${AUR_SSH_USER:-aur}"
+AUR_SSH="${AUR_SSH_USER}@aur.archlinux.org"
 PACKAGING_DIR="$PROJECT_DIR/packaging/aur"
+WORK_DIR="/tmp/minimem-aur-work"
 
-# Which package(s) to publish
-PUBLISH_MINIMEM=true
-PUBLISH_DKMS=true
+ACTION="${1:---setup-guide}"
 
-if [ "$1" = "minimem" ]; then
-    PUBLISH_DKMS=false
-elif [ "$1" = "minimem-dkms" ]; then
-    PUBLISH_MINIMEM=false
-elif [ "$1" != "" ] && [ "$1" != "both" ]; then
-    echo "Usage: $0 [minimem|minimem-dkms|both]"
-    exit 1
-fi
+case "$ACTION" in
+    --setup-guide)
+        echo "=== MiniMem AUR Setup Guide ==="
+        echo ""
+        echo "1. Create an AUR account:"
+        echo "   https://aur.archlinux.org/register"
+        echo ""
+        echo "2. Add your SSH key to your AUR account:"
+        echo "   https://aur.archlinux.org/account/"
+        echo ""
+        echo "3. Initialize AUR repos:"
+        echo "   AUR_SSH_USER=you ./scripts/publish-aur.sh --init"
+        echo ""
+        echo "4. After init, update packages:"
+        echo "   AUR_SSH_USER=you ./scripts/publish-aur.sh --update"
+        echo ""
+        echo "AUR packages:"
+        echo "  minimem        — userspace compression library"
+        echo "  minimem-dkms   — kernel module (DKMS, auto-rebuilds on kernel update)"
+        ;;
 
-echo "=== MiniMem AUR Publish ==="
-echo "  Version: $VERSION"
-echo "  AUR base: $AUR_BASE"
-echo ""
+    --init)
+        echo "=== Initializing AUR package repos ==="
+        mkdir -p "$WORK_DIR"
 
-# Verify prerequisites
-if ! command -v makepkg &>/dev/null; then
-    echo "Error: makepkg not found. This script must run on Arch Linux."
-    exit 1
-fi
+        if [ ! -d "$WORK_DIR/minimem" ]; then
+            echo "Cloning minimem ..."
+            git clone "ssh://$AUR_SSH/minimem.git" "$WORK_DIR/minimem"
+        fi
 
-if ! ssh -T aur@aur.archlinux.org 2>&1 | grep -q "interactive"; then
-    echo "Warning: SSH key for aur.archlinux.org may not be configured."
-    echo "Test with: ssh -T aur@aur.archlinux.org"
-    echo "Continuing anyway..."
-fi
+        if [ ! -d "$WORK_DIR/minimem-dkms" ]; then
+            echo "Cloning minimem-dkms ..."
+            git clone "ssh://$AUR_SSH/minimem-dkms.git" "$WORK_DIR/minimem-dkms"
+        fi
 
-# Verify the GitHub tag exists (source tarball must resolve)
-SOURCE_URL="https://github.com/marcel-b-roodt/MiniMem/archive/refs/tags/v${VERSION}.tar.gz"
-echo "Verifying source tarball at $SOURCE_URL ..."
-if curl -fsI "$SOURCE_URL" >/dev/null 2>&1; then
-    echo "  Source tarball resolves OK"
-else
-    echo "Error: Source tarball not found at $SOURCE_URL"
-    echo "Create and push the tag first: git tag -s v$VERSION && git push origin v$VERSION"
-    exit 1
-fi
+        echo ""
+        echo "AUR repos cloned to $WORK_DIR/"
+        echo "Run 'AUR_SSH_USER=you ./scripts/publish-aur.sh --update' to push PKGBUILDs."
+        ;;
 
-mkdir -p "$AUR_BASE"
+    --update)
+        if [ ! -d "$WORK_DIR/minimem" ] || [ ! -d "$WORK_DIR/minimem-dkms" ]; then
+            echo "Error: AUR repos not initialized. Run './scripts/publish-aur.sh --init' first."
+            exit 1
+        fi
 
-# ---- Helper: publish one AUR package ----
-publish_aur_package() {
-    local pkgname="$1"
-    local aur_dir="$AUR_BASE/$pkgname"
-    local src_dir="$PACKAGING_DIR/$pkgname"
+        echo "=== Updating AUR packages to v$VERSION ==="
 
-    echo ""
-    echo "--- Publishing $pkgname ---"
+        for pkg in minimem minimem-dkms; do
+            echo "--- $pkg ---"
+            PKG_DIR="$WORK_DIR/$pkg"
 
-    # Clone or update AUR repo
-    if [ -d "$aur_dir" ]; then
-        echo "Updating existing AUR clone ..."
-        git -C "$aur_dir" pull
-    else
-        echo "Cloning AUR repo for $pkgname ..."
-        git clone "aur@aur.archlinux.org:$pkgname.git" "$aur_dir"
-    fi
+            cp "$PACKAGING_DIR/$pkg/PKGBUILD" "$PKG_DIR/PKGBUILD"
 
-    # Copy PKGBUILD and supporting files
-    echo "Copying PKGBUILD ..."
-    cp "$src_dir/PKGBUILD" "$aur_dir/PKGBUILD"
+            if [ "$pkg" = "minimem-dkms" ]; then
+                cp "$PACKAGING_DIR/$pkg/minimem-dkms.install" "$PKG_DIR/"
+            fi
 
-    # Copy .install file if present
-    if [ -f "$src_dir/$pkgname.install" ]; then
-        cp "$src_dir/$pkgname.install" "$aur_dir/$pkgname.install"
-    fi
+            (cd "$PKG_DIR" && \
+                makepkg --printsrcinfo > .SRCINFO && \
+                git add PKGBUILD .SRCINFO && \
+                [ -f minimem-dkms.install ] && git add minimem-dkms.install || true && \
+                git commit -m "Update to v$VERSION" && \
+                git push)
+        done
 
-    # Generate .SRCINFO
-    echo "Generating .SRCINFO ..."
-    (cd "$aur_dir" && makepkg --printsrcinfo > .SRCINFO)
+        echo ""
+        echo "AUR packages updated."
+        echo "  https://aur.archlinux.org/packages/minimem"
+        echo "  https://aur.archlinux.org/packages/minimem-dkms"
+        ;;
 
-    # Verify source
-    echo "Verifying source ..."
-    (cd "$aur_dir" && makepkg --verifysource 2>&1) || {
-        echo "Warning: source verification failed. Check PKGBUILD source URL."
-        echo "Continuing — you can fix before pushing."
-    }
+    --check)
+        echo "=== Verifying AUR packaging ==="
+        for pkg in minimem minimem-dkms; do
+            PKG_DIR="$PACKAGING_DIR/$pkg"
+            echo "--- $pkg ---"
 
-    # Show diff
-    echo ""
-    echo "Changes to be committed:"
-    (cd "$aur_dir" && git diff --stat HEAD 2>/dev/null || true)
-    (cd "$aur_dir" && git diff --stat --cached HEAD 2>/dev/null || true)
-    (cd "$aur_dir" && git status --short 2>/dev/null || true)
+            if [ ! -f "$PKG_DIR/PKGBUILD" ]; then
+                echo "  ERROR: PKGBUILD missing"
+                continue
+            fi
 
-    # Commit
-    (cd "$aur_dir" && \
-        git add PKGBUILD .SRCINFO ${pkgname}.install 2>/dev/null || true && \
-        git commit -m "Update to $VERSION" && \
-        git push)
+            tmpdir=$(mktemp -d)
+            cp "$PKG_DIR/PKGBUILD" "$tmpdir/"
 
-    echo "$pkgname published to AUR"
-}
+            if [ "$pkg" = "minimem-dkms" ] && [ -f "$PKG_DIR/minimem-dkms.install" ]; then
+                cp "$PKG_DIR/minimem-dkms.install" "$tmpdir/"
+            fi
 
-# ---- Publish ----
+            (cd "$tmpdir" && makepkg --printsrcinfo > .SRCINFO 2>/dev/null) || {
+                echo "  WARNING: could not generate .SRCINFO (missing deps is OK on non-Arch)"
+            }
 
-if [ "$PUBLISH_MINIMEM" = true ]; then
-    publish_aur_package "minimem"
-fi
+            if [ -f "$tmpdir/.SRCINFO" ] && [ -f "$PKG_DIR/.SRCINFO" ]; then
+                if diff -q "$tmpdir/.SRCINFO" "$PKG_DIR/.SRCINFO" >/dev/null 2>&1; then
+                    echo "  .SRCINFO matches PKGBUILD"
+                else
+                    echo "  WARNING: .SRCINFO is stale, run --update to regenerate"
+                fi
+            fi
 
-if [ "$PUBLISH_DKMS" = true ]; then
-    publish_aur_package "minimem-dkms"
-fi
+            rm -rf "$tmpdir"
+        done
+        ;;
 
-echo ""
-echo "=== AUR Publish Complete ==="
-echo ""
-echo "Users can now install:"
-echo "  yay -S minimem          # userspace library"
-echo "  yay -S minimem-dkms     # kernel module (DKMS)"
-echo ""
-echo "Verify at:"
-echo "  https://aur.archlinux.org/packages/minimem"
-echo "  https://aur.archlinux.org/packages/minimem-dkms"
+    *)
+        echo "Usage: $0 [--setup-guide|--init|--update|--check]"
+        echo ""
+        echo "  --setup-guide  : Print first-time AUR setup instructions"
+        echo "  --init         : Clone AUR repos (first time only)"
+        echo "  --update       : Push updated PKGBUILDs to AUR"
+        echo "  --check        : Verify .SRCINFO matches PKGBUILD"
+        echo ""
+        echo "Environment:"
+        echo "  AUR_SSH_USER : SSH username for AUR (default: aur)"
+        exit 1
+        ;;
+esac

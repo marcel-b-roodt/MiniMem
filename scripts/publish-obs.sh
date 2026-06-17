@@ -1,119 +1,114 @@
 #!/bin/bash
-# scripts/publish-obs.sh — Set up and publish MiniMem on Open Build Service
+# scripts/publish-obs.sh — Publish MiniMem on Open Build Service
 #
-# OBS builds packages for Fedora, Debian, Ubuntu, openSUSE simultaneously.
-# This is the one-stop shop for cross-distro distribution.
+# OBS builds packages for Debian, Ubuntu, Fedora, and openSUSE simultaneously.
+# Arch Linux is handled separately via AUR (see publish-aur.sh).
 #
-# Prerequisites:
-#   - osc (OBS command-line client) installed and configured
-#   - OBS account at https://build.opensuse.org/
-#   - Set OBS_USER to your OBS username (or export it)
+# First-time setup (manual, one-off):
+#   1. pip install osc
+#   2. Create ~/.config/osc/oscrc with your credentials
+#   3. Create project:  osc meta prj home:YOUR_USER -e
+#   4. Create package:  osc checkout home:YOUR_USER
+#                      cd home:YOUR_USER && osc mkpac minimem
 #
-# First-time setup:
-#   1. Install osc: pip install osc
-#   2. Run: osc setupapi   (or edit ~/.oscrc with your credentials)
-#   3. Set your username:  export OBS_USER=your-obs-username
-#   4. Run: ./scripts/publish-obs.sh --setup
-#
-# Usage: ./scripts/publish-obs.sh [--setup|--update|--check]
+# After setup:
+#   OBS_USER=yourname ./scripts/publish-obs.sh --update
+#   OBS_USER=yourname ./scripts/publish-obs.sh --check
+#   ./scripts/publish-obs.sh --setup-guide
 
 set -euo pipefail
 
 VERSION="0.6.0"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-OBS_USER="${OBS_USER:?Set OBS_USER to your OBS username. Example: export OBS_USER=marcelbroodt}"
+OBS_USER="${OBS_USER:-}"
 OBS_PROJECT="home:${OBS_USER}"
 PACKAGING_DIR="$PROJECT_DIR/packaging"
 
-ACTION="${1:---setup}"
-
-echo "=== MiniMem OBS Publish ==="
-echo "  Version: $VERSION"
-echo "  Project: $OBS_PROJECT"
-echo ""
-
-if ! command -v osc &>/dev/null; then
-    echo "Error: osc not installed."
-    echo "Install: pip install osc"
-    echo "  or:    zypper install osc  (openSUSE)"
-    echo "  or:    dnf install osc    (Fedora)"
-    echo "Account: https://build.opensuse.org/"
-    exit 1
-fi
-
-if [ ! -f ~/.oscrc ]; then
-    echo "Error: ~/.oscrc not found. Run 'osc setupapi' first or create it:"
-    echo ""
-    echo "  [general]"
-    echo "  apiurl = https://api.opensuse.org"
-    echo ""
-    echo "  [https://api.opensuse.org]"
-    echo "  user = $OBS_USER"
-    echo "  pass = <your-password-or-api-token>"
-    exit 1
-fi
+ACTION="${1:---setup-guide}"
 
 case "$ACTION" in
-    --setup)
-        echo "Creating OBS project ..."
+    --setup-guide)
+        echo "=== MiniMem OBS Setup Guide ==="
+        echo ""
+        echo "1. Install osc:"
+        echo "   pip install osc"
+        echo ""
+        echo "2. Create ~/.config/osc/oscrc:"
+        echo ""
+        echo "   [general]"
+        echo "   apiurl=https://api.opensuse.org"
+        echo ""
+        echo "   [https://api.opensuse.org]"
+        echo "   user=YOUR_OBS_USERNAME"
+        echo "   pass=YOUR_OBS_PASSWORD"
+        echo ""
+        echo "3. Create your OBS project:"
+        echo "   osc meta prj home:YOUR_OBS_USERNAME -e"
+        echo ""
+        echo "   In the editor, paste this XML (replace YOUR_OBS_USERNAME):"
+        echo ""
+        cat << 'PRJ_XML'
+   <project name="home:YOUR_OBS_USERNAME">
+     <title>MiniMem - Transparent Memory Compression</title>
+     <description>
+   MiniMem provides transparent, lossless memory compression at the OS kernel
+   and GPU driver level. This project provides the userspace library and DKMS
+   kernel module packages.
+     </description>
+     <repository name="Debian_12">
+       <path project="Debian:12" repository="standard"/>
+       <arch>x86_64</arch>
+       <arch>aarch64</arch>
+     </repository>
+     <repository name="Ubuntu_24.04">
+       <path project="Ubuntu:24.04" repository="standard"/>
+       <arch>x86_64</arch>
+       <arch>aarch64</arch>
+     </repository>
+     <repository name="Fedora_41">
+       <path project="Fedora:41" repository="standard"/>
+       <arch>x86_64</arch>
+       <arch>aarch64</arch>
+     </repository>
+     <repository name="openSUSE_Tumbleweed">
+       <path project="openSUSE:Factory" repository="standard"/>
+       <arch>x86_64</arch>
+       <arch>aarch64</arch>
+     </repository>
+   </project>
+PRJ_XML
+        echo ""
+        echo "4. Create the minimem package:"
+        echo "   osc checkout home:YOUR_OBS_USERNAME"
+        echo "   cd home:YOUR_OBS_USERNAME && osc mkpac minimem"
+        echo ""
+        echo "5. Run this script to upload packaging:"
+        echo "   OBS_USER=yourname ./scripts/publish-obs.sh --update"
+        echo ""
+        echo "6. Check build status:"
+        echo "   OBS_USER=yourname ./scripts/publish-obs.sh --check"
+        ;;
 
-        PRJ_XML="/tmp/minimem-obs-project.xml"
-        cat > "$PRJ_XML" << PRJ_EOF
-<project name="$OBS_PROJECT">
-  <title>MiniMem - Transparent Memory Compression</title>
-  <description>
-MiniMem provides transparent, lossless memory compression at the OS kernel
-and GPU driver level. This project provides the userspace library and DKMS
-kernel module packages.
-  </description>
-  <repository name="Fedora_Rawhide">
-    <path project="Fedora:Rawhide" repository="standard"/>
-    <arch>x86_64</arch>
-    <arch>aarch64</arch>
-  </repository>
-  <repository name="Fedora_41">
-    <path project="Fedora:41" repository="standard"/>
-    <arch>x86_64</arch>
-    <arch>aarch64</arch>
-  </repository>
-  <repository name="Debian_Testing">
-    <path project="Debian:Testing" repository="main"/>
-    <arch>x86_64</arch>
-    <arch>aarch64</arch>
-  </repository>
-  <repository name="Ubuntu_24.04">
-    <path project="Ubuntu:24.04" repository="standard"/>
-    <arch>x86_64</arch>
-    <arch>aarch64</arch>
-  </repository>
-  <repository name="openSUSE_Tumbleweed">
-    <path project="openSUSE:Factory" repository="standard"/>
-    <arch>x86_64</arch>
-    <arch>aarch64</arch>
-  </repository>
-</project>
-PRJ_EOF
-
-        if osc meta prj "$OBS_PROJECT" &>/dev/null; then
-            echo "Project $OBS_PROJECT already exists, updating ..."
-            osc meta prj "$OBS_PROJECT" -f "$PRJ_XML"
-        else
-            echo "Creating project $OBS_PROJECT ..."
-            osc meta prj "$OBS_PROJECT" -f "$PRJ_XML"
+    --update)
+        if [ -z "$OBS_USER" ]; then
+            echo "Error: Set OBS_USER to your OBS username."
+            echo "  OBS_USER=yourname $0 --update"
+            exit 1
         fi
 
-        rm -f "$PRJ_XML"
+        if ! command -v osc &>/dev/null; then
+            echo "Error: osc not installed. Run: pip install osc"
+            exit 1
+        fi
 
-        echo "Creating minimem package in OBS ..."
-        osc mkpac "$OBS_PROJECT/minimem" 2>/dev/null || true
+        echo "=== Updating OBS packaging for $OBS_PROJECT/minimem ==="
 
         WORK_DIR="/tmp/minimem-obs-work"
         rm -rf "$WORK_DIR"
         mkdir -p "$WORK_DIR"
-        osc checkout "$OBS_PROJECT" "minimem" -o "$WORK_DIR/minimem" 2>/dev/null || {
-            mkdir -p "$WORK_DIR/minimem"
-            osc add "$WORK_DIR/minimem" 2>/dev/null || true
-        }
+
+        echo "Checking out OBS package ..."
+        osc checkout "$OBS_PROJECT" "minimem" -o "$WORK_DIR/minimem"
 
         echo "Copying packaging files ..."
         cp "$PACKAGING_DIR/fedora/minimem.spec" "$WORK_DIR/minimem/"
@@ -126,40 +121,25 @@ PRJ_EOF
 
         (cd "$WORK_DIR/minimem" && \
             osc addremove && \
-            osc commit -m "Initial MiniMem $VERSION packaging")
-
-        echo ""
-        echo "OBS project created. Monitor builds at:"
-        echo "  https://build.opensuse.org/project/show/$OBS_PROJECT"
-        ;;
-
-    --update)
-        echo "Updating OBS packaging ..."
-        WORK_DIR="/tmp/minimem-obs-work/minimem"
-
-        if [ ! -d "$WORK_DIR" ]; then
-            echo "Checking out OBS package ..."
-            mkdir -p "$WORK_DIR"
-            osc checkout "$OBS_PROJECT" "minimem" -o "$WORK_DIR"
-        fi
-
-        cp "$PACKAGING_DIR/fedora/minimem.spec" "$WORK_DIR/"
-        cp "$PACKAGING_DIR/debian/control" "$WORK_DIR/debian.control"
-        cp "$PACKAGING_DIR/debian/rules" "$WORK_DIR/debian.rules"
-        cp "$PACKAGING_DIR/debian/changelog" "$WORK_DIR/debian.changelog"
-        cp "$PACKAGING_DIR/debian/compat" "$WORK_DIR/debian.compat"
-        cp "$PACKAGING_DIR/debian/copyright" "$WORK_DIR/debian.copyright"
-        cp "$PACKAGING_DIR/obs/_service" "$WORK_DIR/"
-
-        (cd "$WORK_DIR" && \
-            osc addremove && \
             osc commit -m "Update MiniMem to $VERSION")
 
         echo "OBS packaging updated."
+        echo "Monitor: https://build.opensuse.org/project/show/$OBS_PROJECT"
         ;;
 
     --check)
-        echo "Checking OBS build status ..."
+        if [ -z "$OBS_USER" ]; then
+            echo "Error: Set OBS_USER to your OBS username."
+            echo "  OBS_USER=yourname $0 --check"
+            exit 1
+        fi
+
+        if ! command -v osc &>/dev/null; then
+            echo "Error: osc not installed."
+            exit 1
+        fi
+
+        echo "=== OBS Build Status for $OBS_PROJECT/minimem ==="
         osc results "$OBS_PROJECT" "minimem" 2>/dev/null || {
             echo "Could not fetch build status."
             echo "Check manually: https://build.opensuse.org/project/show/$OBS_PROJECT"
@@ -167,14 +147,14 @@ PRJ_EOF
         ;;
 
     *)
-        echo "Usage: $0 [--setup|--update|--check]"
+        echo "Usage: $0 [--setup-guide|--update|--check]"
         echo ""
-        echo "  --setup  : Create OBS project and initial packages"
-        echo "  --update : Push updated packaging to OBS"
-        echo "  --check  : Check build status"
+        echo "  --setup-guide  : Print first-time OBS setup instructions"
+        echo "  --update       : Push updated packaging files to OBS"
+        echo "  --check        : Check build status"
         echo ""
         echo "Environment:"
-        echo "  OBS_USER : Your OBS username (required)"
+        echo "  OBS_USER : Your OBS username (required for --update and --check)"
         exit 1
         ;;
 esac

@@ -11,6 +11,7 @@ set -e
 
 VERSION="0.6.0"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+OBS_USER="${OBS_USER:-}"
 
 SKIP_AUR=false
 SKIP_OBS=false
@@ -63,7 +64,7 @@ if [ "$SKIP_AUR" = false ]; then
     echo ""
     echo "=== Publishing to AUR ==="
     if [ -f "$PROJECT_DIR/scripts/publish-aur.sh" ]; then
-        bash "$PROJECT_DIR/scripts/publish-aur.sh" both
+        bash "$PROJECT_DIR/scripts/publish-aur.sh" --update
     else
         echo "AUR publish script not found. Skipping."
     fi
@@ -92,6 +93,6 @@ echo "  openSUSE:       zypper install libminimem minimem-dkms  (from OBS repo)"
 echo "  Manual DKMS:    sudo ./scripts/dkms-install.sh"
 echo ""
 echo "Add OBS repo (one-time, per distro):"
-echo "  Fedora:     dnf copr enable minimem/minimem"
-echo "  Debian:     See https://build.opensuse.org/project/show/home:minimem"
-echo "  Ubuntu:     See https://build.opensuse.org/project/show/home:minimem"
+echo "  Fedora:     See https://build.opensuse.org/project/show/home:${OBS_USER:-YOUR_OBS_USER}"
+echo "  Debian:     See https://build.opensuse.org/project/show/home:${OBS_USER:-YOUR_OBS_USER}"
+echo "  Ubuntu:     See https://build.opensuse.org/project/show/home:${OBS_USER:-YOUR_OBS_USER}"

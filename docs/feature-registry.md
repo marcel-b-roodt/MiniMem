@@ -68,10 +68,12 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 
 | Feature | Status | Notes |
 |---|---|---|
-| VRAM buffer tracking | 📋 Planned | Classify by type: weights, activations, textures, framebuffers |
-| VRAM compression map | 📋 Planned | GPU-side buffer ID → compressed region |
-| Decompression on GPU access | 📋 Planned | GPU page faults or command-stream barriers |
-| AI workload compressor | 🔧 In Progress | FP16/BF16 BYTE_STREAM_SPLIT and INT8 row-delta implemented in lib; needs GPU dispatch integration |
+| VRAM buffer registry | ✅ Complete | Register/unregister GPU buffers by address; tracked with tier, format, compression state |
+| VRAM tier management | ✅ Complete | HOT/WARM/COLD/FROZEN tiers; tier advice by idle time; compress/decompress per-buffer |
+| VRAM compression dispatch | ✅ Complete | AI weight algorithms (FP16/BF16 BYTE_STREAM_SPLIT, INT8 row-delta); idle sweep compresses all cold buffers |
+| VRAM stats tracking | ✅ Complete | Cumulative compress/decompress counts, bytes saved, latency totals |
+| VRAM roundtrip tests | ✅ Complete | 7 standalone tests: register/unregister, FP16/INT8 roundtrip, compress_all_idle, stats, tier advice, find_buf |
+| AI workload compressor | ✅ Complete | FP16/BF16 BYTE_STREAM_SPLIT and INT8 row-delta; 1.96:1 FP16, 141:1 INT8; all under 10μs decompress |
 | nvCOMP integration | 📋 Planned | Evaluate GPU-parallel bulk compression |
 | Driver integration points | 🔧 In Progress | TTM `amdgpu_vram_mgr` is primary insertion point; mm/ has zero VRAM visibility; CXL Type-3 works today; see research/014 |
 | Userspace API | 📋 Planned | ioctl/sysfs for compression policy advice |
@@ -100,7 +102,7 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 
 | Feature | Status | Notes |
 |---|---|---|
-| AI weight compressor | ✅ Complete | BYTE_STREAM_SPLIT (FP16/BF16) + row-delta XOR (INT8); 1.96:1 on FP16, 44.5:1 on uniform INT8; all under 10μs decompress |
+| AI weight compressor | ✅ Complete | BYTE_STREAM_SPLIT (FP16/BF16) + row-delta XOR (INT8); 1.96:1 on FP16, 141:1 on uniform INT8; integrated into VRAM layer |
 | Page-table-aware compressor | 📋 Planned | Exploit pointer alignment, upper-byte zeros |
 | Delta-streaming compressor | 📋 Planned | XOR deltas for COW/incremental pages |
 | Dictionary compressor (pre-trained) | 📋 Planned | Homogeneous workload dictionaries |
