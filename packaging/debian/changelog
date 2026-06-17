@@ -6,7 +6,7 @@ minimem (0.8.0-1) unstable; urgency=low
   * Recovery documentation
   * Shellcheck lint fixes
 
- -- Marcel Broodt <minimem@noreply.github.com>  Fri, 20 Jun 2026 00:00:00 +0000
+ -- Marcel Broodt <minimem@noreply.github.com>  Sat, 20 Jun 2026 00:00:00 +0000
 
 minimem (0.7.0-1) unstable; urgency=medium
 
@@ -15,4 +15,4 @@ minimem (0.7.0-1) unstable; urgency=medium
   * Add zram coexistence documentation
   * Bump version to 0.7.0
 
- -- Marcel Broodt <minimem@noreply.github.com>  Wed, 18 Jun 2026 00:00:00 +0000
+ -- Marcel Broodt <minimem@noreply.github.com>  Thu, 18 Jun 2026 00:00:00 +0000

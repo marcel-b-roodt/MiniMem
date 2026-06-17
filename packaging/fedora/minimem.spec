@@ -74,7 +74,7 @@ but require manual application and kernel rebuild.
 %else
 mkdir -p build
 meson setup build --buildtype=plain -Dtests=false
-ninja -C build -j%{_smp_mflags}
+ninja -C build %{?_smp_mflags}
 %endif
 
 %install
@@ -218,17 +218,17 @@ dkms remove minimem/%{version} --all 2>/dev/null || true
 %{_modulesloaddir}/minimem.conf
 
 %changelog
-* Fri Jun 20 2026 Marcel Broodt <minimem@noreply.github.com> - 0.8.0-1
+* Sat Jun 20 2026 Marcel Broodt <minimem@noreply.github.com> - 0.8.0-1
 - Add per-process compression statistics
 - Add local install/uninstall script
 - Add AUR minimem-dkms-systemd package
 - Add recovery documentation
 - Shellcheck lint fixes across test scripts
 
-* Wed Jun 18 2026 Marcel Broodt <minimem@noreply.github.com> - 0.7.0-1
+* Thu Jun 18 2026 Marcel Broodt <minimem@noreply.github.com> - 0.7.0-1
 - Add parallel decompression auto-detect and sysfs toggle
 - Add systemd units for auto-load and auto-enable
 - Add zram coexistence documentation
 
-* Tue Jun 17 2026 Marcel Broodt <minimem@noreply.github.com> - 0.6.0-1
+* Wed Jun 17 2026 Marcel Broodt <minimem@noreply.github.com> - 0.6.0-1
 - Initial package
