@@ -1,4 +1,4 @@
-# MiniMem Benchmark Summary — v0.6.0
+# MiniMem Benchmark Summary — v0.7.0
 
 ## Test Configuration
 

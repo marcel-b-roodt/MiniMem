@@ -172,10 +172,25 @@ if [ "$OLD_VERSION" = "$VERSION" ]; then
 else
     echo "  Bumping version in all files ..."
 
+    # Kernel module
     sed -i "s/$OLD_VERSION/$VERSION/g" src/kernel/minimem_main.c
     sed -i "s/$OLD_VERSION/$VERSION/g" dkms/dkms.conf
     sed -i "s/$OLD_VERSION/$VERSION/g" dkms/install.sh
     sed -i "s/$OLD_VERSION/$VERSION/g" dkms/uninstall.sh
+
+    # Build system
+    sed -i "s/version : '$OLD_VERSION'/version : '$VERSION'/g" meson.build
+    OLD_VERSION_MAJOR=$(echo "$OLD_VERSION" | cut -d. -f1)
+    OLD_VERSION_MINOR=$(echo "$OLD_VERSION" | cut -d. -f2)
+    OLD_VERSION_PATCH=$(echo "$OLD_VERSION" | cut -d. -f3)
+    NEW_VERSION_MAJOR=$(echo "$VERSION" | cut -d. -f1)
+    NEW_VERSION_MINOR=$(echo "$VERSION" | cut -d. -f2)
+    NEW_VERSION_PATCH=$(echo "$VERSION" | cut -d. -f3)
+    sed -i "s/minimem_version_major = '$OLD_VERSION_MAJOR'/minimem_version_major = '$NEW_VERSION_MAJOR'/g" meson.build
+    sed -i "s/minimem_version_minor = '$OLD_VERSION_MINOR'/minimem_version_minor = '$NEW_VERSION_MINOR'/g" meson.build
+    sed -i "s/minimem_version_patch = '$OLD_VERSION_PATCH'/minimem_version_patch = '$NEW_VERSION_PATCH'/g" meson.build
+
+    # Scripts
     sed -i "s/$OLD_VERSION/$VERSION/g" scripts/dkms-install.sh
     sed -i "s/$OLD_VERSION/$VERSION/g" scripts/dkms-uninstall.sh
     sed -i "s/$OLD_VERSION/$VERSION/g" scripts/publish-obs.sh
@@ -183,14 +198,29 @@ else
     sed -i "s/$OLD_VERSION/$VERSION/g" scripts/publish-debian.sh
     sed -i "s/$OLD_VERSION/$VERSION/g" scripts/publish-fedora.sh
     sed -i "s/$OLD_VERSION/$VERSION/g" scripts/publish-all.sh
+
+    # AUR packaging
     sed -i "s/$OLD_VERSION/$VERSION/g" packaging/aur/minimem/PKGBUILD
+    sed -i "s/$OLD_VERSION/$VERSION/g" packaging/aur/minimem/.SRCINFO
     sed -i "s/$OLD_VERSION/$VERSION/g" packaging/aur/minimem-dkms/PKGBUILD
+    sed -i "s/$OLD_VERSION/$VERSION/g" packaging/aur/minimem-dkms/.SRCINFO
     sed -i "s/$OLD_VERSION/$VERSION/g" packaging/aur/minimem-dkms/minimem-dkms.install
+
+    # Fedora/RPM packaging
     sed -i "s/$OLD_VERSION/$VERSION/g" packaging/fedora/minimem.spec
+
+    # Debian packaging
     sed -i "s/$OLD_VERSION/$VERSION/g" packaging/debian/control
     sed -i "s/$OLD_VERSION/$VERSION/g" packaging/debian/rules
     sed -i "s/$OLD_VERSION/$VERSION/g" packaging/debian/changelog
+    sed -i "s/$OLD_VERSION/$VERSION/g" packaging/debian/minimem.dsc
+
+    # OBS
     sed -i "s/$OLD_VERSION/$VERSION/g" packaging/obs/_service
+
+    # Documentation
+    sed -i "s/v$OLD_VERSION/v$VERSION/g" docs/roadmap.md
+    sed -i "s/v$OLD_VERSION/v$VERSION/g" docs/benchmarks.md
 
     echo "  Done. Verify with: git diff"
 fi

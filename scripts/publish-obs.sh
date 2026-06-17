@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-VERSION="0.6.0"
+VERSION="0.7.0"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OBS_USER="${OBS_USER:-}"
 OBS_PROJECT="home:${OBS_USER}"
@@ -120,6 +120,9 @@ PRJ_XML
         cp "$PACKAGING_DIR/debian/libminimem0.install" "$WORK_DIR/minimem/debian.libminimem0.install"
         cp "$PACKAGING_DIR/debian/libminimem-dev.install" "$WORK_DIR/minimem/debian.libminimem-dev.install"
         cp "$PACKAGING_DIR/debian/minimem-dkms.install" "$WORK_DIR/minimem/debian.minimem-dkms.install"
+        cp "$PACKAGING_DIR/debian/minimem-dkms-systemd.install" "$WORK_DIR/minimem/debian.minimem-dkms-systemd.install"
+        cp "$PACKAGING_DIR/debian/minimem-dkms-systemd.postinst" "$WORK_DIR/minimem/debian.minimem-dkms-systemd.postinst"
+        cp "$PACKAGING_DIR/debian/minimem-dkms-systemd.prerm" "$WORK_DIR/minimem/debian.minimem-dkms-systemd.prerm"
         cp "$PACKAGING_DIR/debian/minimem.dsc" "$WORK_DIR/minimem/"
         cp "$PACKAGING_DIR/obs/_service" "$WORK_DIR/minimem/"
 

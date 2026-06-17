@@ -191,6 +191,54 @@ Required format:
 
 ---
 
+## Release Process
+
+### Version bump checklist
+
+Every release must update the version in **all** of these locations. The `scripts/release.sh` automates this, but verify manually:
+
+| File | Pattern |
+|---|---|
+| `src/kernel/minimem_main.c` | `MODULE_VERSION("X.Y.Z")` and `#define MINIMEM_VERSION_STR "X.Y.Z"` |
+| `meson.build` | `version : 'X.Y.Z'` and `minimem_version_major/minor/patch` |
+| `dkms/dkms.conf` | `PACKAGE_VERSION="X.Y.Z"` |
+| `dkms/install.sh` | `PATCHDIR="/usr/src/minimem-X.Y.Z/patches"` |
+| `dkms/uninstall.sh` | `PATCHDIR="/usr/src/minimem-X.Y.Z/patches"` |
+| `scripts/dkms-install.sh` | `VERSION="X.Y.Z"` |
+| `scripts/dkms-uninstall.sh` | `VERSION="X.Y.Z"` |
+| `scripts/publish-obs.sh` | `VERSION="X.Y.Z"` |
+| `scripts/publish-aur.sh` | `VERSION="X.Y.Z"` |
+| `scripts/publish-debian.sh` | `VERSION="X.Y.Z"` |
+| `scripts/publish-fedora.sh` | `VERSION="X.Y.Z"` |
+| `scripts/publish-all.sh` | `VERSION="X.Y.Z"` |
+| `packaging/aur/minimem/PKGBUILD` | `pkgver=X.Y.Z` |
+| `packaging/aur/minimem/.SRCINFO` | `pkgver = X.Y.Z` and source URL |
+| `packaging/aur/minimem-dkms/PKGBUILD` | `pkgver=X.Y.Z` |
+| `packaging/aur/minimem-dkms/.SRCINFO` | `pkgver = X.Y.Z` and source URL |
+| `packaging/aur/minimem-dkms/minimem-dkms.install` | `/usr/src/minimem-X.Y.Z/` paths |
+| `packaging/fedora/minimem.spec` | `Version: X.Y.Z` and changelog |
+| `packaging/debian/control` | `minimem-dkms-systemd` depends version |
+| `packaging/debian/rules` | `DKMS_VERSION := X.Y.Z` |
+| `packaging/debian/changelog` | New entry with version |
+| `packaging/debian/minimem.dsc` | `Version: X.Y.Z-1` and tarball name |
+| `packaging/obs/_service` | Tarball URL |
+
+### Release workflow
+
+1. **Version bump:** Run `./scripts/release.sh release X.Y.Z` — this creates a release branch, bumps all versions, commits, tags, merges back to main, and pushes.
+2. **Verify builds:** Check that `ninja -C build` and `./build-kmod.sh build` both succeed with the new version.
+3. **Run tests:** `ninja -C build test` (userspace) and `./vm-test-minimem.sh` (kernel).
+4. **GitHub release:** The script creates a GitHub release via `gh` if available, otherwise create manually.
+5. **AUR publish:** `AUR_SSH_USER=yourname ./scripts/publish-aur.sh --update`
+6. **OBS publish:** `OBS_USER=yourname ./scripts/publish-obs.sh --update`
+7. **Post-release:** Update `docs/feature-registry.md`, `docs/roadmap.md`, and `NearTermTodos.txt` to reflect the released version.
+
+### Hotfix workflow
+
+For patch releases: `./scripts/release.sh hotfix X.Y.Z` — creates a hotfix branch from the latest tag, applies fixes, bumps, tags, merges, and publishes.
+
+---
+
 ## Testing Strategy
 
 ### Framework
