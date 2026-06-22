@@ -60,6 +60,14 @@ Status legend: ✅ Complete · 🔧 In Progress · 📋 Planned · ❌ Removed /
 | DKMS packaging | ✅ Complete | dkms.conf, DKMS Makefile, install/uninstall scripts, convenience scripts; auto-rebuild per kernel update; kernel patch application support |
 | Kernel patch detection | ✅ Complete | Runtime detection of minimem_register_fault_handler symbol; registers VM_FAULT_NOPAGE handler when patches present; falls back to kprobe on unpatched kernels; kernel_patches sysfs attribute |
 | Scanner sweep (patched kernels) | ✅ Complete | minimem_hook_marker_ready() returns true when kernel patches detected; sweep pass compresses cold pages; handle_pte_marker returns VM_FAULT_NOPAGE via registered handler |
+| Scanner sweep (kprobe fallback) | ✅ Complete | minimem_hook_fault_handler_ready() returns true when kprobe on do_swap_page is registered; sweep pass enabled on unpatched kernels via kprobe fault interception |
+| Scanner skip filters | ✅ Complete | VM_LOCKED, VM_SHARED, VM_PFNMAP, VM_IO VMAs skipped; mlocked pages skipped (folio_test_mlocked); elevated refcount pages skipped (page_count > 2); kernel threads skipped (mm==NULL) |
+| Scanner performance safeguards | ✅ Complete | cond_resched() every 256 pages (mark) / 64 pages (sweep) / 16 VMAs; batch limit of 8192 pages/cycle; adaptive interval backs off 2s/cycle (max 30s), resets on compression |
+| Incompressible page skip-list | ✅ Complete | Bloom filter (2^14 bits) hashes recently-failed pages; skip for 8 cycles then decay; scanner_skip_incompressible counter |
+| Page drain-and-restore on unload | ✅ Complete | minimem_zswap_drain_and_restore() walks all processes' page tables, decompresses every MiniMem PTE marker, restores PTEs to present before module unload; no data loss |
+| Graceful shutdown | ✅ Complete | minimem-load.service has Before=umount.target and TimeoutStopSec=120; scanner disabled before drain; module unload after drain completes |
+| Scanner skip-reason counters | ✅ Complete | 7 sysfs attributes: scanner_mark_pages, scanner_skip_vma_locked, scanner_skip_page_shared, scanner_skip_page_mlocked, scanner_skip_incompressible, scanner_cycles_total, scanner_cycles_empty |
+| Debug-level logging | ✅ Complete | Per-event pr_info in fault handlers and PTE replacement converted to pr_debug; toggleable via dyndbg; no dmesg flooding under load |
 | Parallel decompression auto-detect | ✅ Complete | parallel_mode sysfs: 0=disabled, 1=enabled, 2=auto (default); auto enables parallel on ≥2 CPUs, serial on 1 CPU; avoids overhead on low-CPU systems |
 | Systemd auto-load/enable | ✅ Complete | minimem-load.service (modprobe), minimem.service (scanner_enabled=1), modules-load.d/minimem.conf; packaged in RPM/Debian/AUR |
 | ZRAM coexistence | ✅ Complete | MiniMem and zram are complementary (different page types); MiniMem uses separate zsmalloc pool; kprobe on do_swap_page adds minimal overhead to zram faults |

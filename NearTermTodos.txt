@@ -1,48 +1,100 @@
-## Near-Term — Packaging & CLI
+## Near-Term — Completed
 
 - [x] Fix OBS spec for openSUSE Tumbleweed (meson macros, systemd macros, pkg-config, kernel-devel)
-- [x] Fix spec ninja -j flag duplication
-- [x] Fix spec changelog day-of-week errors
+- [x] Fix spec ninja -j flag duplication and changelog day-of-week errors
 - [x] Create `minimem` CLI tool (replaces minimem-stats)
 - [x] Add CLI to meson build install_data
 - [x] Update local-install.sh to install CLI
 - [x] Update packaging (RPM minimem-cli, Debian minimem-cli, AUR)
 - [x] Update README to use CLI instead of raw sysfs
-- [ ] Publish fixed spec to OBS and verify openSUSE build
+- [x] P0-1: Enable sweep pass on unpatched kernels (kprobe path)
+- [x] P0-2: Add page decompression on module unload (drain_and_restore)
+- [x] P0-3: Fix systemd shutdown ordering (Before=umount.target, drain before rmmod)
+- [x] P0-4: Fix misleading uninstall message
+- [x] P1-1: Add cond_resched() to scanner loops
+- [x] P1-2: Add batch throttling to VMA scanner (8192 pages/cycle)
+- [x] P1-3: Add adaptive scan interval (back off on zero compression, 2s → max 30s)
+- [x] P1-4: Skip scanning when no fault handler is available
+- [x] P1-5: Filter VM_LOCKED, VM_SHARED, mlocked, elevated-refcount pages
+- [x] P1-6: Add bloom-filter skip-list for incompressible pages
+- [x] P2-1: Convert per-event pr_info to pr_debug (fault handlers, PTE replacement)
+- [x] P2-2: Add skip-reason counters to sysfs (7 new attributes)
+- [x] P2-4: Add mark-pass stats to sysfs (scanner_mark_pages)
+
+## Near-Term — Comprehensive VM Testing (Critical)
+
+The QEMU VM test suite needs significant enhancement to verify all the new
+functionality, especially after the scanner/transparent-compression fixes.
+This is the top priority before any release.
+
+- [ ] Add E2E test: transparent compression roundtrip with kprobe
+      Enable scanner, allocate anonymous pages, wait for sweep, touch pages,
+      verify data integrity after decompression. Currently only the
+      compress_vaddr debugfs interface tests PTE replacement — we need a
+      real-world test where the scanner compresses and the fault handler
+      decompresses.
+- [ ] Add E2E test: module unload with active compressed pages
+      Compress pages, verify drain_and_restore restores all PTEs,
+      check that processes don't SIGBUS after unload.
+- [ ] Add E2E test: scanner skip filters
+      Verify that VM_LOCKED VMAs, mlocked pages, and shared pages are
+      skipped. Check that skip counters (scanner_skip_vma_locked,
+      scanner_skip_page_mlocked, scanner_skip_page_shared) increment.
+- [ ] Add E2E test: adaptive scan interval
+      Verify that interval backs off when no pages are compressed and
+      resets when pages are compressed. Check scanner_cycles_total and
+      scanner_cycles_empty counters.
+- [ ] Add E2E test: incompressible page skip-list
+      Verify that recently-incompressible pages are skipped and that
+      scanner_skip_incompressible counter increments.
+- [ ] Add E2E test: graceful shutdown with compressed pages
+      Start with compressed pages, issue `rmmod minimem`, verify that
+      drain_and_restore completes and no SIGBUS occurs.
+- [ ] Add E2E test: CPU overhead measurement
+      Measure minimem_scand CPU usage during active scanning vs idle.
+      Verify that adaptive backoff reduces CPU usage when no compression
+      is happening. Target: <5% single-core during active scan on 4-CPU VM.
+- [ ] Add E2E test: decompression latency measurement
+      Measure fault handler latency (time from page fault to present PTE).
+      Target: <10μs per 4KB page decompression.
+- [ ] Add E2E test: large memory VM (4GB+)
+      Test with larger VM to verify scanner doesn't consume excessive CPU
+      on systems with many processes and GBs of memory.
+
+## Near-Term — Unified Memory / Heterogeneous Architectures
+
+- [ ] Research: How do unified memory machines (Ryzen AI Max, Strix Halo,
+      Apple M-series) partition memory between CPU and GPU blocks?
+      Are CPU-compressed pages visible to GPU? Can GPU faults occur if
+      the CPU compresses pages that the GPU might need?
+- [ ] Research: CXL Type-3 memory and MiniMem. CXL memory IS visible to
+      mm/ — our kernel module already works. Verify that scanner correctly
+      handles CXL-attached memory pages.
+- [ ] Research: For machines with large RAM (128GB+), verify that the
+      scanner's adaptive interval, batch throttling, and cond_resched()
+      keep CPU usage acceptable. The bloom filter skip-list should help
+      with the working set.
+- [ ] BPF tracing integration: Add tracepoints for compression start/end,
+      decompression start/end, and scanner sweep start/end so that BPF
+      tools (bpftrace, bcc) can observe MiniMem's behavior without dmesg.
 
 ## Near-Term — Kernel Module (Stage 1 remaining)
 
 - [ ] Build custom kernel with MiniMem patches applied — enables full scanner sweep
-- [ ] Run full VM test suite with stress tests
 - [ ] Test on real hardware (not QEMU) — NUMA, large memory, different CPU arches
 - [ ] Verify shrinker under real memory pressure
 - [ ] THP + KSM compatibility testing (kernel upstreaming prerequisite)
 - [ ] OOM behavior verification (kernel upstreaming prerequisite)
 - [ ] zram coexistence load testing (kernel upstreaming prerequisite)
 
-## Algorithm Library (Stage 0 remaining)
+## Near-Term — Algorithm Library
 
 - [ ] SIMD paths for LZ4 (SSE2/AVX2)
 - [ ] Zstd dictionary mode
 - [ ] Real data benchmarks (collect actual page dumps + safetensor weights)
 
-## Library Packaging
+## Near-Term — Packaging
 
+- [ ] Publish fixed spec to OBS and verify openSUSE build
 - [ ] Install target verification on clean system
 - [ ] CI/CD for library build and kernel module build
-
-
-TASK: Unified memory machines. How do they work?
-- Are the memory modules separated? i.e. CPU block and GPU block are pre-defined?
-- Do we have guarantees over dynamically changing memory blocks? If a CPU block is compressed and the kernel is aware, could that cause GPU faults?
-- We are also targeting machines that use CPUs like Ryzen AI Max or Strix Halo, who would have unique architectures with large RAM modules.
-- As with QEMU simulation, we should be more careful about aggressive sweeping in the memory, especially on these massive memory machines. The key is transparency. If we are killing cycles, then that is unnaceptable.
-
-TASK: QEMU full simulation from startup to memory management
-- BPF tracing? Do we need shared memory for our module. Need to hook into all the inner-workings to ensure the whole suite works together.
-- Simulation. Be a full setup that shows that the memory compression works well, and all acceptance criteria are working
-- We should not be spinning CPU cycles unnecessarily, we should be uncompressing pages and making them easily active, CPU performance should be very minimal in the sweep. We need to account for large memory pages as well.
-
-TASK: Minimal CPU usage guarantee, Compression CPU overhead monitoring and guarantees
-- We don't want the overhead of compressing and work done there to be extremely slow. Can we make sure that our memory and CPU footprints there are very slow?
-- Can we gauge these in our tests to verify E2E, full installation functionality/acceptance?

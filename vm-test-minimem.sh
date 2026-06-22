@@ -191,6 +191,11 @@ echo "=== Running transparent compression test ==="
 sh /test_transparent_compress.sh
 echo ""
 
+# Run kprobe E2E test (scanner compress → fault handler decompress)
+echo "=== Running kprobe transparent compression test ==="
+sh /test_transparent_kprobe.sh
+echo ""
+
 # Run stress tests if available
 if [ -x /test_stress_concurrent ]; then
     echo "=== Running concurrent fault stress test ==="
@@ -349,6 +354,10 @@ INITEOF
     # Copy transparent compression test
     cp "$SCRIPT_DIR/tests/kernel/test_transparent_compress.sh" "$root/test_transparent_compress.sh"
     chmod +x "$root/test_transparent_compress.sh"
+
+    # Copy kprobe E2E test (new — tests scanner + kprobe fault handler)
+    cp "$SCRIPT_DIR/tests/kernel/test_transparent_kprobe.sh" "$root/test_transparent_kprobe.sh"
+    chmod +x "$root/test_transparent_kprobe.sh"
 
     # Copy static E2E test binary
     cp "$SCRIPT_DIR/tests/kernel/test_transparent_e2e" "$root/test_transparent_e2e"
