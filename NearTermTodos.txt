@@ -1,100 +1,40 @@
 ## Near-Term — Completed (this session)
 
-- [x] Runtime kernel compatibility verification (minimem_compat_check.c/h)
-  - Kernel version check (minimum 5.10)
-  - SWP_PTE_MARKER type roundtrip validation
-  - PTE marker encoding collision detection
-  - Required symbols: __pte_offset_map_lock, pte_mkwrite, folio_add_new_anon_rmap
-  - Optional symbols: folio_add_lru_vma, kernel patches
-  - zsmalloc pool creation test
-  - CONFIG_PAGE_IDLE_FLAG detection
-  - Kprobes availability check
-  - Module refuses to load with clear diagnostic if critical checks fail
-  - sysfs compat_report attribute exposes all check results
-- [x] Performance test harness (test_perf_harness.c)
-  - Test 1: Compression & decompression latency (p50/p95/p99/mean)
-  - Test 2: Throughput (pages/sec, MB/s)
-  - Test 3: Concurrency stress (multi-threaded fault verification)
-  - Test 4: Activity pattern (pages stay present when in use)
-  - Test 5: Memory overhead (compression ratio, savings %)
-  - Test 6: Scanner-driven re-compression cycle
-  - CSV output for CI integration
-  - --quick and --pages/--threads/--rounds/--csv options
-- [x] Emergency recovery and LiveCD instructions
-  - local-install.sh --emergency: force unload with drain-and-restore
-  - 4 recovery scenarios: busy module, kernel panic, LiveCD chroot, DKMS manual
-  - LiveCD recovery instructions in help output
+- [x] Fix parallel decompression crash in zs_obj_read_begin
+  - Root cause: race condition between shrinker/drain freeing zsmalloc handles
+    and parallel workers accessing them
+  - Fix: rw_semaphore on minimem_map (read lock for parallel decompress,
+    write lock for drain/remove/remove_all)
+  - Added NULL return checks for zs_obj_read_begin in all paths
+- [x] Fix build-kmod.sh Makefile heredoc — $(src) and $(PWD) expanded by shell
+  instead of Make; changed to single-quoted heredoc with sed substitution
+- [x] Fix vm-test-minimem.sh — wrong rebuild command for custom kernel,
+  added ensure_module_loaded() helper between test sections
+- [x] Fix format string warning in minimem_compat_check.c (%u → %lu)
+- [x] All 8GB VM tests pass with custom kernel (73 kselftest, 17 E2E, 6 perf harness)
 
-- [x] Fix OBS spec for openSUSE Tumbleweed (meson macros, systemd macros, pkg-config, kernel-devel)
-- [x] Fix spec ninja -j flag duplication and changelog day-of-week errors
-- [x] Create `minimem` CLI tool (replaces minimem-stats)
-- [x] Add CLI to meson build install_data
-- [x] Update local-install.sh to install CLI
-- [x] Update packaging (RPM minimem-cli, Debian minimem-cli, AUR)
-- [x] Update README to use CLI instead of raw sysfs
-- [x] P0-1: Enable sweep pass on unpatched kernels (kprobe path)
-- [x] P0-2: Add page decompression on module unload (drain_and_restore)
-- [x] P0-3: Fix systemd shutdown ordering (Before=umount.target, drain before rmmod)
-- [x] P0-4: Fix misleading uninstall message
-- [x] P1-1: Add cond_resched() to scanner loops
-- [x] P1-2: Add batch throttling to VMA scanner (8192 pages/cycle)
-- [x] P1-3: Add adaptive scan interval (back off on zero compression, 2s → max 30s)
-- [x] P1-4: Skip scanning when no fault handler is available
-- [x] P1-5: Filter VM_LOCKED, VM_SHARED, mlocked, elevated-refcount pages
-- [x] P1-6: Add bloom-filter skip-list for incompressible pages
-- [x] P2-1: Convert per-event pr_info to pr_debug (fault handlers, PTE replacement)
-- [x] P2-2: Add skip-reason counters to sysfs (7 new attributes)
-- [x] P2-4: Add mark-pass stats to sysfs (scanner_mark_pages)
-- [x] P2-3: Add scanner_cycles_total, scanner_cycles_empty, scanner_current_interval_ms sysfs attributes
-- [x] QEMU VM test: kselftest (65 tests) — all pass
-- [x] QEMU VM test: E2E transparent compression — all pass
-- [x] QEMU VM test: CPU overhead measurement test binary (test_cpu_overhead)
-- [x] QEMU VM test: Drain-and-restore test binary (test_drain_restore)
-- [x] QEMU VM test: Scanner roundtrip test (test_scanner_roundtrip.sh)
-- [x] Kprobe fault handler fix: sweep pass now requires kernel patches (minimem_hook_marker_ready)
-  — kprobe fallback cannot safely replace PTEs because pte_unmap_same() on x86-64
-  bypasses the lock check, causing handle_pte_marker() to return VM_FAULT_SIGBUS
-  for unknown MiniMem markers. See research/024 for details.
+## Near-Term — Critical Bugs
+
+- [ ] "unrecognized swap entry" flood during drain-and-restore
+  - 1505 kernel log messages during VM test
+  - PTE markers with swp_type=15 instead of expected swp_type=31 (SWP_PTE_MARKER)
+  - minimem_zap_cb is registered but zap_pte_range still hits "unrecognized" path
+  - Need to verify PTE marker encoding matches kernel's is_pte_marker_entry()
+  - Possibly: MiniMem's custom swp_entry encoding differs from kernel's __swp_entry
+  - Possibly: PTE markers from processes that exited before module loaded
+- [ ] CPU overhead test false positive: "scan rate too low" failure
+  - Scanner doesn't find enough idle pages in the short test window
+  - Need to increase scan duration or reduce threshold for test
 
 ## Near-Term — Kernel Module (Critical)
 
-- [x] Build custom kernel with MiniMem patches applied — enables full scanner sweep
-  on unpatched kernels. Without patches, the sweep pass (PTE replacement) is
-  disabled because handle_pte_marker() returns VM_FAULT_SIGBUS for unknown markers.
-  See research/024 for details.
 - [ ] Test on real hardware (not QEMU) — NUMA, large memory, different CPU arches
 - [ ] Verify shrinker under real memory pressure
 - [ ] THP + KSM compatibility testing (kernel upstreaming prerequisite)
 - [ ] OOM behavior verification (kernel upstreaming prerequisite)
 - [ ] zram coexistence load testing (kernel upstreaming prerequisite)
-- [ ] Test on other distros (CachyOS, Fedora, Mint) — runtime compat check should catch issues
+- [ ] Test on other distros (CachyOS, Fedora, Mint)
 
-## Near-Term — Comprehensive VM Testing
+## Near-Term — VM Testing
 
-- [x] E2E test: scanner skip filters (verify skip counters increment)
-- [x] E2E test: adaptive scan interval (verify backoff behavior)
-- [x] E2E test: incompressible page skip-list
-- [x] E2E test: graceful shutdown with compressed pages
-- [x] E2E test: CPU overhead measurement on patched kernel (with scanner sweep)
-- [x] E2E test: decompression latency measurement
 - [ ] E2E test: large memory VM (4GB+)
-
-## Near-Term — Unified Memory / Heterogeneous Architectures
-
-- [ ] Research: How do unified memory machines (Ryzen AI Max, Strix Halo,
-      Apple M-series) partition memory between CPU and GPU blocks?
-- [ ] Research: CXL Type-3 memory and MiniMem
-- [ ] Research: Large RAM (128GB+) scanner performance
-- [ ] BPF tracing integration for observability
-
-## Near-Term — Algorithm Library
-
-- [ ] SIMD paths for LZ4 (SSE2/AVX2)
-- [ ] Zstd dictionary mode
-- [ ] Real data benchmarks (collect actual page dumps + safetensor weights)
-
-## Near-Term — Packaging
-
-- [ ] Publish fixed spec to OBS and verify openSUSE build
-- [ ] Install target verification on clean system
-- [ ] CI/CD for library build and kernel module build
