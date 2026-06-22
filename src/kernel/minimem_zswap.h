@@ -27,6 +27,18 @@ int minimem_zswap_init(void);
 void minimem_zswap_exit(void);
 
 /*
+ * Decompress all stored pages and restore their PTEs to present.
+ * Walks all processes' page tables, finds MiniMem PTE markers,
+ * decompresses the corresponding data, allocates new pages,
+ * and installs present PTEs. Called during module unload to
+ * ensure no data is lost.
+ *
+ * Returns the number of pages successfully restored, or a negative
+ * errno on failure.
+ */
+long minimem_zswap_drain_and_restore(void);
+
+/*
  * Compress a page and store it in the zsmalloc pool.
  * Uses the advisor to select the best algorithm.
  * Returns 0 on success, MINIMEM_INCOMPRESSIBLE if no compression possible,

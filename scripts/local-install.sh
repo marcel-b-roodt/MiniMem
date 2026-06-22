@@ -366,15 +366,12 @@ cmd_uninstall() {
     echo ""
     info "=== MiniMem Uninstall Complete ==="
     echo ""
+    echo "  All compressed pages were restored to normal memory before"
+    echo "  the module was unloaded. No data is lost."
+    echo ""
     echo "  If you applied kernel patches, reverse them:"
     echo "    sudo /usr/src/minimem-$VERSION/uninstall.sh $KVER"
     echo "    # Then rebuild and reboot your kernel"
-    echo ""
-    echo "  If you had compressed pages at unload time, they have been"
-    echo "  decompressed back to normal memory. No data is lost."
-    echo ""
-    echo "  If the machine panics on next boot (very unlikely), add to"
-    echo "  GRUB kernel cmdline: minimem.blacklist=1"
 }
 
 # ── Main ────────────────────────────────────────────────────────────

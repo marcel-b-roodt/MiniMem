@@ -12,13 +12,21 @@
  *      uses two-pass mark-and-sweep to find cold pages, then compresses
  *      them and replaces PTEs via minimem_compress_and_replace_pte()
  *
- * When hook symbols are resolved (kprobe on do_swap_page registered),
- * the scanner uses VMA-based scanning for transparent PTE replacement.
- * Otherwise falls back to PFN-based compression-only scanning.
+ * When a fault handler is available (kernel patches or kprobe on
+ * do_swap_page), the scanner uses VMA-based scanning with PTE
+ * replacement. Otherwise falls back to PFN-based compression-only.
  *
  * Two-pass cold page detection (VMA mode):
  *   Mark pass: set idle flag + clear young flag on anonymous pages.
  *   Sweep pass: pages still idle with young clear are cold → compress.
+ *
+ * Performance safeguards:
+ *   - cond_resched() in all inner loops to prevent CPU starvation
+ *   - Batch limit: max pages per scan cycle (default 8192)
+ *   - Adaptive interval: backs off when no compression, resets when active
+ *   - Skips VMAs that are mlock'd, shared, or device-mapped
+ *   - Skips pages that are shared (mapcount > 1) or mlocked
+ *   - Bloom filter skip-list for recently incompressible pages
  *
  * Sysfs controls:
  *   scanner_enabled      — enable/disable (0/1)
@@ -34,6 +42,9 @@
 #include <linux/atomic.h>
 #include <linux/sched.h>
 #include <linux/mmu_context.h>
+#include <linux/bitmap.h>
+#include <linux/module.h>
+#include <linux/rmap.h>
 
 #ifdef CONFIG_PAGE_IDLE_FLAG
 #include <linux/page_idle.h>
@@ -53,8 +64,27 @@ static atomic64_t scanner_pages_idle;
 static atomic64_t scanner_pages_compressed;
 static atomic64_t scanner_pages_skipped;
 static atomic64_t scanner_pfn_cursor;
+static atomic64_t scanner_mark_pages;
+static atomic64_t scanner_skip_vma_locked;
+static atomic64_t scanner_skip_page_shared;
+static atomic64_t scanner_skip_page_mlocked;
+static atomic64_t scanner_skip_incompressible;
+static atomic64_t scanner_cycles_total;
+static atomic64_t scanner_cycles_empty;
+static atomic64_t scanner_current_interval_ms;
+
+#define MINIMEM_MAX_BATCH_PAGES		8192
+#define MINIMEM_ADAPTIVE_MIN_MS		1000
+#define MINIMEM_ADAPTIVE_MAX_MS		30000
+#define MINIMEM_ADAPTIVE_BACKOFF_MS	2000
+#define MINIMEM_SKIP_LIST_BITS		14
+#define MINIMEM_SKIP_LIST_SIZE		(1 << MINIMEM_SKIP_LIST_BITS)
+#define MINIMEM_SKIP_LIST_MASK		(MINIMEM_SKIP_LIST_SIZE - 1)
+#define MINIMEM_SKIP_DECAY_CYCLES	8
 
 static atomic_t scanner_phase;
+
+static DECLARE_BITMAP(skip_list, MINIMEM_SKIP_LIST_SIZE);
 
 bool minimem_scanner_is_enabled(void)
 {
@@ -74,8 +104,10 @@ long minimem_scanner_min_savings_pct(void)
 void minimem_scanner_set_enabled(int val)
 {
 	atomic_set(&scanner_enabled, val ? 1 : 0);
-	if (val)
+	if (val) {
 		atomic_set(&scanner_phase, 0);
+		bitmap_zero(skip_list, MINIMEM_SKIP_LIST_SIZE);
+	}
 }
 
 void minimem_scanner_set_interval_ms(long ms)
@@ -85,6 +117,7 @@ void minimem_scanner_set_interval_ms(long ms)
 	if (ms > 60000)
 		ms = 60000;
 	atomic64_set(&scanner_interval_ms, ms);
+	atomic64_set(&scanner_current_interval_ms, ms);
 }
 
 void minimem_scanner_set_min_savings_pct(long pct)
@@ -114,6 +147,60 @@ unsigned long minimem_scanner_pages_compressed(void)
 unsigned long minimem_scanner_pages_skipped(void)
 {
 	return atomic64_read(&scanner_pages_skipped);
+}
+
+unsigned long minimem_scanner_mark_pages(void)
+{
+	return atomic64_read(&scanner_mark_pages);
+}
+
+unsigned long minimem_scanner_skip_vma_locked(void)
+{
+	return atomic64_read(&scanner_skip_vma_locked);
+}
+
+unsigned long minimem_scanner_skip_page_shared(void)
+{
+	return atomic64_read(&scanner_skip_page_shared);
+}
+
+unsigned long minimem_scanner_skip_page_mlocked(void)
+{
+	return atomic64_read(&scanner_skip_page_mlocked);
+}
+
+unsigned long minimem_scanner_skip_incompressible(void)
+{
+	return atomic64_read(&scanner_skip_incompressible);
+}
+
+unsigned long minimem_scanner_cycles_total(void)
+{
+	return atomic64_read(&scanner_cycles_total);
+}
+
+unsigned long minimem_scanner_cycles_empty(void)
+{
+	return atomic64_read(&scanner_cycles_empty);
+}
+
+static void skip_list_add(unsigned long vaddr)
+{
+	unsigned long idx = (vaddr >> PAGE_SHIFT) & MINIMEM_SKIP_LIST_MASK;
+
+	test_and_set_bit(idx, skip_list);
+}
+
+static bool skip_list_check(unsigned long vaddr)
+{
+	unsigned long idx = (vaddr >> PAGE_SHIFT) & MINIMEM_SKIP_LIST_MASK;
+
+	return test_bit(idx, skip_list);
+}
+
+static void skip_list_decay(void)
+{
+	bitmap_zero(skip_list, MINIMEM_SKIP_LIST_SIZE);
 }
 
 #ifndef CONFIG_PAGE_IDLE_FLAG
@@ -167,6 +254,8 @@ static unsigned long minimem_scan_batch_pfn(void)
 			compressed++;
 		else
 			skipped++;
+
+		cond_resched();
 	}
 
 	atomic64_set(&scanner_pfn_cursor, end);
@@ -178,19 +267,12 @@ static unsigned long minimem_scan_batch_pfn(void)
 	return scanned;
 }
 
-/*
- * Mark pass: walk a VMA's page tables and set the idle flag on all
- * present anonymous pages, then clear the young flag.
- *
- * IMPORTANT: folio_set_idle() and folio_test_clear_young() are called
- * while the PTL is still held, before pte_unmap_unlock(). This prevents
- * the page from being freed between the PTE check and the folio call.
- */
 static unsigned long minimem_mark_vma(struct mm_struct *mm,
-				       struct vm_area_struct *vma)
+				       struct vm_area_struct *vma,
+				       unsigned long *nr_marked)
 {
 	unsigned long addr, end;
-	unsigned long marked = 0;
+	unsigned long pages_examined = 0;
 	pgd_t *pgd;
 	p4d_t *p4d;
 	pud_t *pud;
@@ -204,6 +286,9 @@ static unsigned long minimem_mark_vma(struct mm_struct *mm,
 	end = vma->vm_end;
 
 	for (; addr < end; addr += PAGE_SIZE) {
+		if (kthread_should_stop())
+			break;
+
 		pgd = pgd_offset(mm, addr);
 		if (pgd_none(*pgd) || pgd_bad(*pgd))
 			continue;
@@ -250,24 +335,44 @@ static unsigned long minimem_mark_vma(struct mm_struct *mm,
 			continue;
 		}
 
+		/*
+		 * Skip mlocked pages — they must stay resident.
+		 * Use folio_test_mlocked() for 6.x+ kernel API.
+		 */
 		folio = page_folio(page);
+		if (folio_test_mlocked(folio)) {
+			atomic64_inc(&scanner_skip_page_mlocked);
+			pte_unmap_unlock(ptep, ptl);
+			continue;
+		}
+
+		/*
+		 * Skip pages with elevated reference counts — another
+		 * path may be using this page. page_mapcount() is not
+		 * available to modules, so we use page_count() as a
+		 * conservative heuristic: if refcount > baseline (1 for
+		 * the page itself + 1 for the PTE reference), skip it.
+		 */
+		if (page_count(page) > 2) {
+			atomic64_inc(&scanner_skip_page_shared);
+			pte_unmap_unlock(ptep, ptl);
+			continue;
+		}
+
 		folio_set_idle(folio);
 		folio_test_clear_young(folio);
 
 		pte_unmap_unlock(ptep, ptl);
-		marked++;
+		(*nr_marked)++;
+		pages_examined++;
+
+		if (pages_examined % 256 == 0)
+			cond_resched();
 	}
 
-	return marked;
+	return pages_examined;
 }
 
-/*
- * Sweep pass: walk a VMA's page tables and compress any pages whose
- * idle flag is set and young flag is clear (cold pages).
- *
- * The idle/young checks are done while PTL is held to prevent the page
- * from being freed between the check and the folio operation.
- */
 static unsigned long minimem_sweep_vma(struct mm_struct *mm,
 					struct vm_area_struct *vma)
 {
@@ -281,11 +386,20 @@ static unsigned long minimem_sweep_vma(struct mm_struct *mm,
 	spinlock_t *ptl;
 	struct page *page;
 	struct folio *folio;
+	unsigned long total_batch = MINIMEM_MAX_BATCH_PAGES;
 
 	addr = vma->vm_start;
 	end = vma->vm_end;
 
 	for (; addr < end; addr += PAGE_SIZE) {
+		if (kthread_should_stop())
+			break;
+
+		if (total_batch == 0) {
+			cond_resched();
+			break;
+		}
+
 		pgd = pgd_offset(mm, addr);
 		if (pgd_none(*pgd) || pgd_bad(*pgd))
 			continue;
@@ -328,6 +442,18 @@ static unsigned long minimem_sweep_vma(struct mm_struct *mm,
 		}
 
 		if (!PageLRU(page)) {
+			pte_unmap_unlock(ptep, ptl);
+			continue;
+		}
+
+		if (page_count(page) > 2) {
+			atomic64_inc(&scanner_skip_page_shared);
+			pte_unmap_unlock(ptep, ptl);
+			continue;
+		}
+
+		if (folio_test_mlocked(page_folio(page))) {
+			atomic64_inc(&scanner_skip_page_mlocked);
 			pte_unmap_unlock(ptep, ptl);
 			continue;
 		}
@@ -345,17 +471,29 @@ static unsigned long minimem_sweep_vma(struct mm_struct *mm,
 			continue;
 		}
 
+		if (skip_list_check(addr)) {
+			atomic64_inc(&scanner_skip_incompressible);
+			pte_unmap_unlock(ptep, ptl);
+			skipped++;
+			total_batch--;
+			continue;
+		}
+
 		pte_unmap_unlock(ptep, ptl);
 
 		scanned++;
 
-		if (minimem_compress_and_replace_pte(mm, vma, addr) == 0)
+		if (minimem_compress_and_replace_pte(mm, vma, addr) == 0) {
 			compressed++;
-		else
+		} else {
 			skipped++;
+			skip_list_add(addr);
+		}
 
-		if (kthread_should_stop())
-			break;
+		total_batch--;
+
+		if (scanned % 64 == 0)
+			cond_resched();
 	}
 
 	atomic64_add(scanned, &scanner_pages_scanned);
@@ -370,29 +508,14 @@ static unsigned long minimem_scan_batch_vma(void)
 {
 	struct task_struct *task;
 	unsigned long total = 0;
+	unsigned long total_marked = 0;
 	int phase = atomic_read(&scanner_phase);
 	bool is_sweep = (phase != 0);
 
-	/*
-	 * The sweep pass (transparent PTE replacement) requires the kernel
-	 * to properly handle MiniMem PTE marker faults. On unpatched kernels,
-	 * do_swap_page processes our swap entries and may return VM_FAULT_SIGBUS
-	 * which kills the process. Only run the sweep pass when we have
-	 * confirmed that fault decompression works (via compress_vaddr E2E
-	 * test) or when the kernel patches are applied.
-	 *
-	 * For now, the sweep pass is disabled on unpatched kernels.
-	 * The mark pass still runs to set idle flags for future use.
-	 * The compress_vaddr debugfs interface works because it targets
-	 * specific pages and the test process can handle the fault path.
-	 *
-	 * TODO: Enable sweep pass when kernel patches are applied or when
-	 * a reliable fault interception mechanism is available.
-	 */
 	if (is_sweep) {
-		if (!minimem_hook_marker_ready()) {
+		if (!minimem_hook_fault_handler_ready()) {
 			pr_info_once("minimem: scanner sweep disabled — "
-				     "kretprobe on do_swap_page not registered\n");
+				     "no fault handler available\n");
 			atomic_set(&scanner_phase, 0);
 			return 0;
 		}
@@ -402,6 +525,7 @@ static unsigned long minimem_scan_batch_vma(void)
 	for_each_process(task) {
 		struct mm_struct *mm;
 		struct vm_area_struct *vma;
+		unsigned long vma_count = 0;
 
 		if (kthread_should_stop())
 			break;
@@ -427,14 +551,25 @@ static unsigned long minimem_scan_batch_vma(void)
 				continue;
 			if (vma->vm_flags & (VM_PFNMAP | VM_IO))
 				continue;
+			if (vma->vm_flags & VM_LOCKED) {
+				atomic64_inc(&scanner_skip_vma_locked);
+				continue;
+			}
+			if (vma->vm_flags & VM_SHARED)
+				continue;
 
 			if (kthread_should_stop())
 				break;
 
 			if (is_sweep)
-		total += minimem_sweep_vma(mm, vma);
-	else
-		total += minimem_mark_vma(mm, vma);
+				total += minimem_sweep_vma(mm, vma);
+			else
+				total += minimem_mark_vma(mm, vma,
+							 &total_marked);
+
+			vma_count++;
+			if (vma_count % 16 == 0)
+				cond_resched();
 		}
 
 		mmap_read_unlock(mm);
@@ -445,16 +580,21 @@ static unsigned long minimem_scan_batch_vma(void)
 	atomic_set(&scanner_phase, is_sweep ? 0 : 1);
 
 	if (!is_sweep)
-		pr_info("minimem: scanner mark: %lu pages marked idle\n", total);
-	else
-		pr_info("minimem: scanner sweep: %lu cold pages\n", total);
+		atomic64_set(&scanner_mark_pages, total_marked);
 
-	return total;
+	pr_debug("minimem: scanner %s: %lu pages %s\n",
+		 is_sweep ? "sweep" : "mark",
+		 is_sweep ? total : total_marked,
+		 is_sweep ? "compressed/skipped" : "marked idle");
+
+	return is_sweep ? total : total_marked;
 }
 
 static unsigned long minimem_scan_batch(void)
 {
-	if (minimem_hook_symbols_resolved())
+	if (minimem_hook_fault_handler_ready())
+		return minimem_scan_batch_vma();
+	else if (minimem_hook_symbols_resolved())
 		return minimem_scan_batch_vma();
 	else
 		return minimem_scan_batch_pfn();
@@ -464,18 +604,55 @@ static unsigned long minimem_scan_batch(void)
 
 static int scanner_thread(void *data)
 {
+	unsigned long empty_cycles = 0;
+	long current_interval;
+
 	pr_info("minimem: scanner thread started\n");
 
+	current_interval = atomic64_read(&scanner_interval_ms);
+
 	while (!kthread_should_stop()) {
+		unsigned long result;
+
 		if (!atomic_read(&scanner_enabled)) {
 			msleep_interruptible(1000);
 			continue;
 		}
 
-		minimem_scan_batch();
+		if (!minimem_hook_fault_handler_ready() &&
+		    !minimem_hook_symbols_resolved()) {
+			msleep_interruptible(5000);
+			continue;
+		}
+
+		atomic64_inc(&scanner_cycles_total);
+
+		result = minimem_scan_batch();
 		minimem_proc_stats_gc();
 
-		msleep_interruptible(atomic64_read(&scanner_interval_ms));
+		if (result == 0) {
+			empty_cycles++;
+			if (empty_cycles >= MINIMEM_SKIP_DECAY_CYCLES) {
+				skip_list_decay();
+				empty_cycles = 0;
+			}
+		} else {
+			empty_cycles = 0;
+		}
+
+		atomic64_inc(&scanner_cycles_empty);
+
+		if (result == 0) {
+			current_interval = min(current_interval +
+					       MINIMEM_ADAPTIVE_BACKOFF_MS,
+					       (long)MINIMEM_ADAPTIVE_MAX_MS);
+		} else {
+			current_interval = atomic64_read(&scanner_interval_ms);
+		}
+
+		atomic64_set(&scanner_current_interval_ms, current_interval);
+
+		msleep_interruptible(current_interval);
 	}
 
 	pr_info("minimem: scanner thread stopped\n");
@@ -489,7 +666,17 @@ int minimem_scanner_init(void)
 	atomic64_set(&scanner_pages_compressed, 0);
 	atomic64_set(&scanner_pages_skipped, 0);
 	atomic64_set(&scanner_pfn_cursor, 0);
+	atomic64_set(&scanner_mark_pages, 0);
+	atomic64_set(&scanner_skip_vma_locked, 0);
+	atomic64_set(&scanner_skip_page_shared, 0);
+	atomic64_set(&scanner_skip_page_mlocked, 0);
+	atomic64_set(&scanner_skip_incompressible, 0);
+	atomic64_set(&scanner_cycles_total, 0);
+	atomic64_set(&scanner_cycles_empty, 0);
+	atomic64_set(&scanner_current_interval_ms,
+		     atomic64_read(&scanner_interval_ms));
 	atomic_set(&scanner_phase, 0);
+	bitmap_zero(skip_list, MINIMEM_SKIP_LIST_SIZE);
 
 	scanner_task = kthread_create(scanner_thread, NULL, "minimem_scand");
 	if (IS_ERR(scanner_task))

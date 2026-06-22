@@ -30,3 +30,19 @@
 
 - [ ] Install target verification on clean system
 - [ ] CI/CD for library build and kernel module build
+
+
+TASK: Unified memory machines. How do they work?
+- Are the memory modules separated? i.e. CPU block and GPU block are pre-defined?
+- Do we have guarantees over dynamically changing memory blocks? If a CPU block is compressed and the kernel is aware, could that cause GPU faults?
+- We are also targeting machines that use CPUs like Ryzen AI Max or Strix Halo, who would have unique architectures with large RAM modules.
+- As with QEMU simulation, we should be more careful about aggressive sweeping in the memory, especially on these massive memory machines. The key is transparency. If we are killing cycles, then that is unnaceptable.
+
+TASK: QEMU full simulation from startup to memory management
+- BPF tracing? Do we need shared memory for our module. Need to hook into all the inner-workings to ensure the whole suite works together.
+- Simulation. Be a full setup that shows that the memory compression works well, and all acceptance criteria are working
+- We should not be spinning CPU cycles unnecessarily, we should be uncompressing pages and making them easily active, CPU performance should be very minimal in the sweep. We need to account for large memory pages as well.
+
+TASK: Minimal CPU usage guarantee, Compression CPU overhead monitoring and guarantees
+- We don't want the overhead of compressing and work done there to be extremely slow. Can we make sure that our memory and CPU footprints there are very slow?
+- Can we gauge these in our tests to verify E2E, full installation functionality/acceptance?

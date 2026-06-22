@@ -30,5 +30,12 @@ unsigned long minimem_scanner_pages_scanned(void);
 unsigned long minimem_scanner_pages_idle(void);
 unsigned long minimem_scanner_pages_compressed(void);
 unsigned long minimem_scanner_pages_skipped(void);
+unsigned long minimem_scanner_mark_pages(void);
+unsigned long minimem_scanner_skip_vma_locked(void);
+unsigned long minimem_scanner_skip_page_shared(void);
+unsigned long minimem_scanner_skip_page_mlocked(void);
+unsigned long minimem_scanner_skip_incompressible(void);
+unsigned long minimem_scanner_cycles_total(void);
+unsigned long minimem_scanner_cycles_empty(void);
 
 #endif /* MINIMEM_KERNEL_SCANNER_H */

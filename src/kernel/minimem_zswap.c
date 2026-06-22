@@ -21,12 +21,18 @@
 #include <linux/zsmalloc.h>
 #include <linux/ktime.h>
 #include <linux/cpumask.h>
+#include <linux/sched.h>
+#include <linux/kthread.h>
+#include <linux/rmap.h>
+#include <linux/pgtable.h>
 
 #include "minimem_zswap.h"
 #include "minimem_compress.h"
 #include "minimem_map.h"
 #include "minimem_scanner.h"
 #include "minimem_proc_stats.h"
+#include "minimem_hook.h"
+#include "minimem_pte.h"
 
 static struct zs_pool *minimem_pool;
 static struct minimem_map minimem_map;
@@ -268,4 +274,198 @@ unsigned long minimem_zswap_max_pool_pages(void)
 void minimem_zswap_set_max_pool_pages(unsigned long max)
 {
 	atomic64_set(&mm_max_pool_pages, (s64)max);
+}
+
+/*
+ * Decompress all stored pages and restore their PTEs to present.
+ * Walks all processes' page tables, finds MiniMem PTE markers,
+ * decompresses the corresponding data, allocates new pages,
+ * and installs present PTEs.
+ *
+ * Called during module unload to ensure no data is lost.
+ */
+long minimem_zswap_drain_and_restore(void)
+{
+	struct task_struct *task;
+	unsigned long restored = 0;
+	unsigned long failed = 0;
+	long stored = atomic64_read(&minimem_map.count);
+
+	if (stored == 0)
+		return 0;
+
+	pr_info("minimem: drain_and_restore — %ld compressed pages to restore\n",
+		stored);
+
+	rcu_read_lock();
+	for_each_process(task) {
+		struct mm_struct *mm;
+		struct vm_area_struct *vma;
+		unsigned long vaddr;
+
+		mm = get_task_mm(task);
+		if (!mm)
+			continue;
+
+		if (!mmget_not_zero(mm)) {
+			mmput(mm);
+			continue;
+		}
+
+		mmap_read_lock(mm);
+
+		VMA_ITERATOR(vmi, mm, 0);
+		for_each_vma(vmi, vma) {
+			pgd_t *pgd;
+			p4d_t *p4d;
+			pud_t *pud;
+			pmd_t *pmd;
+			pte_t *ptep, old_pte, new_pte;
+			spinlock_t *ptl;
+
+			if (!vma)
+				break;
+			if (!vma_is_anonymous(vma))
+				continue;
+			if (!vma->vm_start || !vma->vm_end)
+				continue;
+			if (vma->vm_flags & (VM_PFNMAP | VM_IO))
+				continue;
+
+			for (vaddr = vma->vm_start; vaddr < vma->vm_end;
+			     vaddr += PAGE_SIZE) {
+				struct minimem_map_entry entry;
+				struct page *new_page;
+				void *src_buf, *dst_addr;
+				struct minimem_decompress_result dres;
+				int ret;
+
+				pgd = pgd_offset(mm, vaddr);
+				if (pgd_none(*pgd) || pgd_bad(*pgd))
+					continue;
+
+				p4d = p4d_offset(pgd, vaddr);
+				if (p4d_none(*p4d) || p4d_bad(*p4d))
+					continue;
+
+				pud = pud_offset(p4d, vaddr);
+				if (pud_none(*pud) || pud_bad(*pud))
+					continue;
+
+				pmd = pmd_offset(pud, vaddr);
+				if (pmd_none(*pmd) || pmd_trans_huge(*pmd))
+					continue;
+
+				ptep = minimem_pte_offset_map_lock(mm, pmd,
+								    vaddr,
+								    &ptl);
+				if (!ptep)
+					continue;
+
+				old_pte = *ptep;
+
+				if (!is_minimem_pte(old_pte)) {
+					minimem_pte_unmap_unlock(ptep, ptl);
+					continue;
+				}
+
+				minimem_pte_unmap_unlock(ptep, ptl);
+
+				ret = minimem_map_lookup(&minimem_map, vaddr,
+							&entry);
+				if (ret) {
+					failed++;
+					continue;
+				}
+
+				new_page = alloc_page_vma(GFP_HIGHUSER_MOVABLE,
+							  vma, vaddr);
+				if (!new_page) {
+					failed++;
+					continue;
+				}
+
+				src_buf = kmalloc(entry.compressed_len,
+						  GFP_KERNEL);
+				if (!src_buf) {
+					__free_page(new_page);
+					failed++;
+					continue;
+				}
+
+				zs_obj_read_begin(minimem_pool, entry.zs_handle,
+						  src_buf);
+
+				dst_addr = kmap_local_page(new_page);
+				ret = minimem_decompress_page(src_buf,
+							      entry.compressed_len,
+							      entry.algo_id,
+							      dst_addr,
+							      MINIMEM_PAGE_SIZE,
+							      &dres);
+				kunmap_local(dst_addr);
+
+				zs_obj_read_end(minimem_pool, entry.zs_handle,
+						src_buf);
+				kfree(src_buf);
+
+				if (ret != MINIMEM_OK) {
+					__free_page(new_page);
+					minimem_map_remove(&minimem_map, vaddr);
+					zs_free(minimem_pool, entry.zs_handle);
+					atomic64_dec(&mm_stored_pages);
+					atomic64_sub(entry.compressed_len,
+						     &mm_total_bytes);
+					failed++;
+					continue;
+				}
+
+				new_pte = minimem_mk_pte(new_page,
+							 vma->vm_page_prot);
+				if (vma->vm_flags & VM_WRITE)
+					new_pte = minimem_pte_mkwrite(new_pte);
+				new_pte = pte_mkyoung(new_pte);
+
+				ptep = minimem_pte_offset_map_lock(mm, pmd,
+								    vaddr,
+								    &ptl);
+				if (ptep) {
+					if (pte_same(*ptep, old_pte)) {
+						minimem_set_pte_at(mm, vaddr,
+								   ptep,
+								   new_pte);
+						percpu_counter_add(
+							&mm->rss_stat[MM_ANONPAGES],
+							1);
+					} else {
+						__free_page(new_page);
+					}
+					minimem_pte_unmap_unlock(ptep, ptl);
+				} else {
+					__free_page(new_page);
+				}
+
+				minimem_map_remove(&minimem_map, vaddr);
+				zs_free(minimem_pool, entry.zs_handle);
+				atomic64_dec(&mm_stored_pages);
+				atomic64_sub(entry.compressed_len,
+					     &mm_total_bytes);
+
+				restored++;
+
+				if (kthread_should_stop())
+					goto out;
+			}
+		}
+
+out:
+		mmap_read_unlock(mm);
+		mmput(mm);
+	}
+	rcu_read_unlock();
+
+	pr_info("minimem: drain_and_restore — %lu pages restored, %lu failed\n",
+		restored, failed);
+
+	return restored;
 }

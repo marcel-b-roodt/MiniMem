@@ -296,6 +296,37 @@ static ssize_t scanner_pages_skipped_show(struct kobject *kobj,
 	return sprintf(buf, "%lu\n", minimem_scanner_pages_skipped());
 }
 
+static ssize_t scanner_mark_pages_show(struct kobject *kobj,
+				       struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_scanner_mark_pages());
+}
+
+static ssize_t scanner_skip_vma_locked_show(struct kobject *kobj,
+					    struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_scanner_skip_vma_locked());
+}
+
+static ssize_t scanner_skip_page_shared_show(struct kobject *kobj,
+					     struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_scanner_skip_page_shared());
+}
+
+static ssize_t scanner_skip_page_mlocked_show(struct kobject *kobj,
+					       struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_scanner_skip_page_mlocked());
+}
+
+static ssize_t scanner_skip_incompressible_show(struct kobject *kobj,
+						 struct kobj_attribute *attr,
+						 char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_scanner_skip_incompressible());
+}
+
 static ssize_t hook_faults_show(struct kobject *kobj,
 				 struct kobj_attribute *attr, char *buf)
 {
@@ -405,6 +436,16 @@ static struct kobj_attribute scanner_pages_compressed_attr =
 	__ATTR(scanner_pages_compressed, 0444, scanner_pages_compressed_show, NULL);
 static struct kobj_attribute scanner_pages_skipped_attr =
 	__ATTR(scanner_pages_skipped, 0444, scanner_pages_skipped_show, NULL);
+static struct kobj_attribute scanner_mark_pages_attr =
+	__ATTR(scanner_mark_pages, 0444, scanner_mark_pages_show, NULL);
+static struct kobj_attribute scanner_skip_vma_locked_attr =
+	__ATTR(scanner_skip_vma_locked, 0444, scanner_skip_vma_locked_show, NULL);
+static struct kobj_attribute scanner_skip_page_shared_attr =
+	__ATTR(scanner_skip_page_shared, 0444, scanner_skip_page_shared_show, NULL);
+static struct kobj_attribute scanner_skip_page_mlocked_attr =
+	__ATTR(scanner_skip_page_mlocked, 0444, scanner_skip_page_mlocked_show, NULL);
+static struct kobj_attribute scanner_skip_incompressible_attr =
+	__ATTR(scanner_skip_incompressible, 0444, scanner_skip_incompressible_show, NULL);
 static struct kobj_attribute hook_faults_attr =
 	__ATTR(hook_faults, 0444, hook_faults_show, NULL);
 static struct kobj_attribute kernel_patches_attr =
@@ -440,6 +481,11 @@ static struct attribute *minimem_attrs[] = {
 	&scanner_pages_idle_attr.attr,
 	&scanner_pages_compressed_attr.attr,
 	&scanner_pages_skipped_attr.attr,
+	&scanner_mark_pages_attr.attr,
+	&scanner_skip_vma_locked_attr.attr,
+	&scanner_skip_page_shared_attr.attr,
+	&scanner_skip_page_mlocked_attr.attr,
+	&scanner_skip_incompressible_attr.attr,
 	&hook_faults_attr.attr,
 	&kernel_patches_attr.attr,
 	&max_pool_pages_attr.attr,
@@ -906,6 +952,8 @@ static int __init minimem_init(void)
 
 static void __exit minimem_exit(void)
 {
+	long restored;
+
 	/* Remove per-process stats sysfs files */
 	{
 		struct kobj_attribute **ppattrs;
@@ -920,9 +968,21 @@ static void __exit minimem_exit(void)
 	sysfs_remove_group(minimem_kobj, &minimem_attr_group);
 	kobject_put(minimem_kobj);
 
-	minimem_proc_stats_exit();
-	minimem_hook_exit();
+	/*
+	 * Stop the scanner first so no new pages are compressed
+	 * while we drain existing compressed pages.
+	 */
 	minimem_scanner_exit();
+
+	/*
+	 * Decompress all stored pages and restore their PTEs before
+	 * unloading. This prevents data loss — any process with a
+	 * MiniMem PTE marker would SIGBUS after module unload.
+	 */
+	restored = minimem_zswap_drain_and_restore();
+	pr_info("minimem: restored %ld compressed pages on unload\n", restored);
+
+	minimem_hook_exit();
 	minimem_shrinker_exit();
 	minimem_fault_exit();
 	minimem_parallel_exit();

@@ -1,12 +1,15 @@
 [Unit]
 Description=Load MiniMem kernel module
 Documentation=https://github.com/marcel-b-roodt/MiniMem
+Before=umount.target
+After=systemd-modules-load.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/sbin/modprobe minimem
 ExecStop=/sbin/modprobe -r minimem
+TimeoutStopSec=120
 
 [Install]
 WantedBy=multi-user.target

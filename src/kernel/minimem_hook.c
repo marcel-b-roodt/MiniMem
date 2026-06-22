@@ -178,7 +178,7 @@ static int resolve_kernel_symbols(void)
 	} else {
 		kernel_patches_detected = false;
 		pr_info("minimem: kernel patches not detected — "
-			"kprobe-only mode (scanner sweep disabled)\n");
+			"kprobe-only mode (sweep enabled via kprobe)\n");
 	}
 
 	symbols_resolved = true;
@@ -186,37 +186,22 @@ static int resolve_kernel_symbols(void)
 }
 
 /*
- * Inline implementations for PTE helpers that are macros/inlines.
+ * PTE helper implementations.
+ * Declarations and inline versions are in minimem_hook.h.
  */
-
-static inline pte_t minimem_mk_pte(struct page *page, pgprot_t pgprot)
-{
-	return pfn_pte(page_to_pfn(page), pgprot);
-}
 
 void minimem_set_pte_at(struct mm_struct *mm,
 		      unsigned long addr, pte_t *ptep,
 		      pte_t pte)
 {
-	/*
-	 * On x86-64 with PTL held, set_pte_at() expands to
-	 * native_set_pte() which is WRITE_ONCE(*ptep, pte).
-	 * We write directly since we hold the page table lock.
-	 */
 	WRITE_ONCE(*ptep, pte);
 }
 
-static inline pte_t minimem_pte_mkwrite(pte_t pte)
+pte_t minimem_pte_mkwrite_func(pte_t pte)
 {
 	if (p_pte_mkwrite_novma)
 		return p_pte_mkwrite_novma(pte);
 	return pte;
-}
-
-static inline void minimem_pte_unmap_unlock(pte_t *ptep, spinlock_t *ptl)
-{
-	pte_unmap(ptep);
-	spin_unlock(ptl);
 }
 
 static vm_fault_t minimem_vm_fault_handler(struct vm_fault *vmf)
@@ -305,10 +290,10 @@ static vm_fault_t minimem_vm_fault_handler(struct vm_fault *vmf)
 	atomic64_inc(&hook_faults_handled);
 	atomic64_add(ktime_get_ns() - start, &hook_faults_ns);
 
-	pr_info("minimem: patched fault handled for vaddr=0x%lx, "
-		"algo=%d compressed=%zu decompressed=%zu\n",
-		vaddr, map_entry.algo_id, map_entry.compressed_len,
-		(size_t)MINIMEM_PAGE_SIZE);
+	pr_debug("minimem: patched fault handled for vaddr=0x%lx, "
+		 "algo=%d compressed=%zu decompressed=%zu\n",
+		 vaddr, map_entry.algo_id, map_entry.compressed_len,
+		 (size_t)MINIMEM_PAGE_SIZE);
 
 	return VM_FAULT_NOPAGE;
 }
@@ -398,10 +383,10 @@ static int minimem_handle_swap_fault(struct vm_fault *vmf)
 	atomic64_inc(&hook_faults_handled);
 	atomic64_add(ktime_get_ns() - start, &hook_faults_ns);
 
-	pr_info("minimem: transparent fault handled for vaddr=0x%lx, "
-		"algo=%d compressed=%zu decompressed=%zu\n",
-		vaddr, map_entry.algo_id, map_entry.compressed_len,
-		(size_t)MINIMEM_PAGE_SIZE);
+	pr_debug("minimem: transparent fault handled for vaddr=0x%lx, "
+		 "algo=%d compressed=%zu decompressed=%zu\n",
+		 vaddr, map_entry.algo_id, map_entry.compressed_len,
+		 (size_t)MINIMEM_PAGE_SIZE);
 
 	return 1;
 }
@@ -513,6 +498,11 @@ bool minimem_hook_symbols_resolved(void)
 bool minimem_hook_marker_ready(void)
 {
 	return kernel_patches_detected;
+}
+
+bool minimem_hook_fault_handler_ready(void)
+{
+	return kernel_patches_detected || hook_registered;
 }
 
 pte_t *minimem_pte_offset_map_lock(struct mm_struct *mm, pmd_t *pmd,
@@ -693,8 +683,8 @@ int minimem_compress_and_replace_pte(struct mm_struct *mm,
 
 	atomic64_inc(&hook_faults_handled);
 
-	pr_info("minimem: PTE replaced for vaddr=0x%lx, algo=%d compressed=%zu\n",
-		vaddr, res.algo_id, res.compressed_size);
+	pr_debug("minimem: PTE replaced for vaddr=0x%lx, algo=%d compressed=%zu\n",
+		 vaddr, res.algo_id, res.compressed_size);
 
 	return 0;
 }

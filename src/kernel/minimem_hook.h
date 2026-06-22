@@ -45,6 +45,15 @@ bool minimem_hook_symbols_resolved(void);
  * This is required for the scanner sweep pass to safely
  * compress pages — without it, MiniMem PTE marker faults
  * return VM_FAULT_SIGBUS which kills the process.
+ *
+ * Returns true if either kernel patches or kprobe fallback
+ * is available to handle MiniMem PTE marker faults.
+ */
+bool minimem_hook_fault_handler_ready(void);
+
+/*
+ * Check if kernel patches are detected (minimem_register_fault_handler
+ * symbol resolved). This is a subset of hook_fault_handler_ready.
  */
 bool minimem_hook_marker_ready(void);
 
@@ -63,5 +72,40 @@ pte_t *minimem_pte_offset_map_lock(struct mm_struct *mm, pmd_t *pmd,
  */
 void minimem_set_pte_at(struct mm_struct *mm, unsigned long addr,
 			pte_t *ptep, pte_t pte);
+
+/*
+ * Inline PTE helpers. On x86-64, many PTE operations are macros or
+ * inline functions that can't be resolved via kallsyms. We provide
+ * our own implementations using resolved symbols where needed.
+ */
+
+/*
+ * Construct a PTE from a page and page protection flags.
+ * Uses pfn_pte() which is always available.
+ */
+static inline pte_t minimem_mk_pte(struct page *page, pgprot_t pgprot)
+{
+	return pfn_pte(page_to_pfn(page), pgprot);
+}
+
+/*
+ * Make a PTE writable. Uses the resolved pte_mkwrite_novla symbol
+ * on kernels that have it (6.x+), otherwise falls back.
+ */
+pte_t minimem_pte_mkwrite_func(pte_t pte);
+
+static inline pte_t minimem_pte_mkwrite(pte_t pte)
+{
+	return minimem_pte_mkwrite_func(pte);
+}
+
+/*
+ * Unlock a PTE. pte_unmap_unlock is a macro on most architectures.
+ */
+static inline void minimem_pte_unmap_unlock(pte_t *ptep, spinlock_t *ptl)
+{
+	pte_unmap(ptep);
+	spin_unlock(ptl);
+}
 
 #endif /* MINIMEM_KERNEL_HOOK_H */
