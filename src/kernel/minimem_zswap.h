@@ -71,6 +71,14 @@ struct zs_pool *minimem_zswap_pool(void);
  */
 struct minimem_map *minimem_zswap_map(void);
 
+/*
+ * Zap callback for MiniMem PTE markers.
+ * Called from zap_pte_range() when a process exits or munmaps
+ * a region with MiniMem-compressed pages. Frees the zsmalloc
+ * allocation and removes the map entry.
+ */
+void minimem_zswap_zap_cb(struct vm_area_struct *vma,
+			  unsigned long addr, swp_entry_t entry);
 
 
 /* Stats */

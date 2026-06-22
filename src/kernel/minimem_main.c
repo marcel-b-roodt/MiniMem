@@ -40,6 +40,7 @@
 #include "minimem_scanner.h"
 #include "minimem_hook.h"
 #include "minimem_proc_stats.h"
+#include "minimem_compat_check.h"
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("MiniMem Project");
@@ -327,6 +328,25 @@ static ssize_t scanner_skip_incompressible_show(struct kobject *kobj,
 	return sprintf(buf, "%lu\n", minimem_scanner_skip_incompressible());
 }
 
+static ssize_t scanner_cycles_total_show(struct kobject *kobj,
+					  struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_scanner_cycles_total());
+}
+
+static ssize_t scanner_cycles_empty_show(struct kobject *kobj,
+					  struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_scanner_cycles_empty());
+}
+
+static ssize_t scanner_current_interval_ms_show(struct kobject *kobj,
+						  struct kobj_attribute *attr,
+						  char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_scanner_current_interval_ms());
+}
+
 static ssize_t hook_faults_show(struct kobject *kobj,
 				 struct kobj_attribute *attr, char *buf)
 {
@@ -446,6 +466,12 @@ static struct kobj_attribute scanner_skip_page_mlocked_attr =
 	__ATTR(scanner_skip_page_mlocked, 0444, scanner_skip_page_mlocked_show, NULL);
 static struct kobj_attribute scanner_skip_incompressible_attr =
 	__ATTR(scanner_skip_incompressible, 0444, scanner_skip_incompressible_show, NULL);
+static struct kobj_attribute scanner_cycles_total_attr =
+	__ATTR(scanner_cycles_total, 0444, scanner_cycles_total_show, NULL);
+static struct kobj_attribute scanner_cycles_empty_attr =
+	__ATTR(scanner_cycles_empty, 0444, scanner_cycles_empty_show, NULL);
+static struct kobj_attribute scanner_current_interval_ms_attr =
+	__ATTR(scanner_current_interval_ms, 0444, scanner_current_interval_ms_show, NULL);
 static struct kobj_attribute hook_faults_attr =
 	__ATTR(hook_faults, 0444, hook_faults_show, NULL);
 static struct kobj_attribute kernel_patches_attr =
@@ -454,6 +480,45 @@ static struct kobj_attribute max_pool_pages_attr =
 	__ATTR(max_pool_pages, 0644, max_pool_pages_show, max_pool_pages_store);
 static struct kobj_attribute parallel_mode_attr =
 	__ATTR(parallel_mode, 0644, parallel_mode_show, parallel_mode_store);
+
+static struct minimem_compat_result saved_compat;
+
+static ssize_t compat_report_show(struct kobject *kobj,
+				   struct kobj_attribute *attr, char *buf)
+{
+	const struct minimem_compat_result *r = &saved_compat;
+	int len = 0;
+
+	len += sprintf(buf + len, "kernel_version: %u.%u.%u %s\n",
+		       r->kernel_major, r->kernel_minor, r->kernel_patch,
+		       r->kernel_version_ok ? "OK" : "FAIL");
+	len += sprintf(buf + len, "kallsyms: %s\n",
+		       r->kallsyms_ok ? "OK" : "FAIL");
+	len += sprintf(buf + len, "kprobes: %s\n",
+		       r->kprobes_ok ? "OK" : "MISSING");
+	len += sprintf(buf + len, "required_symbols: %s\n",
+		       r->required_symbols_ok ? "OK" : "FAIL");
+	len += sprintf(buf + len, "swp_type: %s (value=%u)\n",
+		       r->swp_type_ok ? "OK" : "FAIL", r->detected_swp_type);
+	len += sprintf(buf + len, "pte_mkwrite: %s (%s)\n",
+		       r->pte_mkwrite_ok ? "OK" : "FAIL",
+		       r->pte_mkwrite_two_args ? "2-arg-VMA" : "unknown");
+	len += sprintf(buf + len, "kernel_patches: %s\n",
+		       r->kernel_patches_ok ? "detected" : "not_detected");
+	len += sprintf(buf + len, "page_idle: %s\n",
+		       r->page_idle_ok ? "enabled" : "DISABLED");
+	len += sprintf(buf + len, "zsmalloc: %s\n",
+		       r->zsmalloc_ok ? "OK" : "FAIL");
+	len += sprintf(buf + len, "folio_rmap: %s\n",
+		       r->folio_rmap_ok ? "OK" : "MISSING");
+	len += sprintf(buf + len, "fail_count: %d\n", r->fail_count);
+	len += sprintf(buf + len, "overall: %s\n",
+		       r->fail_count == 0 ? "PASS" : "FAIL");
+	return len;
+}
+
+static struct kobj_attribute compat_report_attr =
+	__ATTR(compat_report, 0444, compat_report_show, NULL);
 
 static struct attribute *minimem_attrs[] = {
 	&pages_compressed_attr.attr,
@@ -486,10 +551,14 @@ static struct attribute *minimem_attrs[] = {
 	&scanner_skip_page_shared_attr.attr,
 	&scanner_skip_page_mlocked_attr.attr,
 	&scanner_skip_incompressible_attr.attr,
+	&scanner_cycles_total_attr.attr,
+	&scanner_cycles_empty_attr.attr,
+	&scanner_current_interval_ms_attr.attr,
 	&hook_faults_attr.attr,
 	&kernel_patches_attr.attr,
 	&max_pool_pages_attr.attr,
 	&parallel_mode_attr.attr,
+	&compat_report_attr.attr,
 	NULL,
 };
 
@@ -816,6 +885,17 @@ static const struct file_operations compress_vaddr_fops = {
 static int __init minimem_init(void)
 {
 	int ret;
+	struct minimem_compat_result compat;
+
+	ret = minimem_compat_check(&compat);
+	minimem_compat_report(&compat);
+	saved_compat = compat;
+	if (ret) {
+		pr_err("minimem: compatibility check failed (%d critical issues), "
+		       "refusing to load. See above for details.\n",
+		       compat.fail_count);
+		return ret;
+	}
 
 	atomic64_set(&minimem_stats.pages_compressed, 0);
 	atomic64_set(&minimem_stats.pages_decompressed, 0);

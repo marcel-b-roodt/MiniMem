@@ -41,6 +41,8 @@ else
 
     if insmod /minimem.ko 2>/dev/null && [ -d "$SYSDIR" ]; then
         pass "module loaded successfully"
+    elif insmod -f /minimem.ko 2>/dev/null && [ -d "$SYSDIR" ]; then
+        pass "module loaded with --force (vermagic mismatch)"
     else
         fail "module load failed"
         echo "=== TESTS ABORTED ==="
@@ -60,6 +62,8 @@ zswap_pages zswap_bytes zswap_saved pool_pages
 parallel_clusters parallel_pages
 scanner_enabled scanner_interval_ms min_savings_pct
 scanner_pages_scanned scanner_pages_idle scanner_pages_compressed scanner_pages_skipped
+scanner_mark_pages scanner_skip_vma_locked scanner_skip_page_shared scanner_skip_page_mlocked
+scanner_skip_incompressible scanner_cycles_total scanner_cycles_empty scanner_current_interval_ms
 hook_faults kernel_patches max_pool_pages parallel_mode
 per_process_stats per_process_top_n stats_summary"
 

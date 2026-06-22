@@ -10,45 +10,40 @@
 #
 # Usage:
 #   ./vm-test-minimem.sh              # Full test (build rootfs, boot, test)
+#   ./vm-test-minimem.sh --8gb        # 8GB RAM performance test (4 CPUs, 300s timeout)
+#   ./vm-test-minimem.sh --4gb        # 4GB RAM test
+#   ./vm-test-minimem.sh --2gb        # 2GB RAM test
+#   ./vm-test-minimem.sh --ram 8G     # Custom RAM size
 #   ./vm-test-minimem.sh --rebuild    # Force rebuild rootfs
 #   ./vm-test-minimem.sh --shell      # Boot VM and drop to shell
 #   ./vm-test-minimem.sh --skip-parallel  # Skip parallel benchmark
+#   ./vm-test-minimem.sh --custom-kernel  # Use custom kernel from .kernel/out/
 
 set -euo pipefail
+
+# Kill any lingering QEMU processes on exit or interrupt
+cleanup_qemu() {
+    # Kill QEMU processes that we spawned
+    pkill -f "qemu-system-x86_64.*minimem" 2>/dev/null || true
+}
+trap cleanup_qemu EXIT INT TERM
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MODULE="$SCRIPT_DIR/src/kernel/minimem.ko"
 VM_DIR="$SCRIPT_DIR/.vm-test"
 ROOTFS="$VM_DIR/rootfs.cpio.gz"
-# Find kernel — try exact match first, then fallback
-KERNEL=""
-for k in "/boot/vmlinuz-$(uname -r)" "/boot/vmlinuz-$(uname -r | sed 's/\.[0-9]*-.*//')"; do
-    if [[ -f "$k" ]]; then
-        KERNEL="$k"
-        break
-    fi
-done
-if [[ -z "$KERNEL" ]]; then
-    # Try any vmlinuz in /boot
-    KERNEL=$(find /boot -name 'vmlinuz-*' -maxdepth 1 2>/dev/null | head -1)
-fi
-
-INITRD=""
-for i in "/boot/initramfs-$(uname -r).img" "/boot/initramfs-$(uname -r | sed 's/\.[0-9]*-.*//').img"; do
-    if [[ -f "$i" ]]; then
-        INITRD="$i"
-        break
-    fi
-done
+# KERNEL and INITRD are resolved in check_prereqs() based on --custom-kernel flag
 
 # VM settings
 VM_RAM="768M"
 VM_CPUS="4"
-VM_TIMEOUT="120"
+VM_TIMEOUT="180"
 
 SKIP_PARALLEL=false
 SHELL_MODE=false
 FORCE_REBUILD=false
+CUSTOM_KERNEL=false
+VM_RAM_SET=false
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -67,8 +62,21 @@ parse_args() {
             --rebuild)        FORCE_REBUILD=true; shift ;;
             --shell)          SHELL_MODE=true; shift ;;
             --skip-parallel)  SKIP_PARALLEL=true; shift ;;
+            --custom-kernel)  CUSTOM_KERNEL=true; shift ;;
+            --ram)            VM_RAM="$2"; VM_RAM_SET=true; shift 2 ;;
+            --timeout)        VM_TIMEOUT="$2"; shift 2 ;;
+            --8gb)            VM_RAM="8G"; VM_TIMEOUT="300"; shift ;;
+            --4gb)            VM_RAM="4G"; VM_TIMEOUT="240"; shift ;;
+            --2gb)            VM_RAM="2G"; VM_TIMEOUT="200"; shift ;;
             --help|-h)
                 head -15 "$0"
+                echo ""
+                echo "Size presets:"
+                echo "  --8gb            8GB RAM, 4 CPUs, 300s timeout (full perf test)"
+                echo "  --4gb            4GB RAM, 4 CPUs, 240s timeout"
+                echo "  --2gb            2GB RAM, 4 CPUs, 200s timeout"
+                echo "  --ram SIZE       Custom RAM size (e.g., 8G, 4096M)"
+                echo "  --timeout SECS   Custom timeout"
                 exit 0
                 ;;
             *) warn "Unknown: $1"; shift ;;
@@ -82,15 +90,90 @@ check_prereqs() {
         exit 1
     fi
 
-    if [[ ! -f "$KERNEL" ]]; then
-        fail "Kernel not found: $KERNEL"
-        exit 1
+    if $CUSTOM_KERNEL; then
+        # Use the custom kernel built by scripts/build-custom-kernel.sh
+        local custom_dir="$SCRIPT_DIR/.kernel/out"
+        KERNEL=$(find "$custom_dir/boot" -name 'vmlinuz-*' 2>/dev/null | head -1)
+        if [[ -z "$KERNEL" || ! -f "$KERNEL" ]]; then
+            fail "Custom kernel not found in $custom_dir/boot/"
+            fail "Run ./scripts/build-custom-kernel.sh first"
+            exit 1
+        fi
+        # Determine the custom kernel version for module path
+        CUSTOM_KVER=$(basename "$KERNEL" | sed 's/vmlinuz-//')
+        CUSTOM_MODDIR="$custom_dir/lib/modules/$CUSTOM_KVER"
+        if [[ ! -d "$CUSTOM_MODDIR" ]]; then
+            warn "Custom kernel modules not found: $CUSTOM_MODDIR"
+            warn "Will use host kernel modules as fallback"
+        fi
+        log "Using custom kernel: $KERNEL"
+        log "Custom kernel version: $CUSTOM_KVER"
+    else
+        # Find host kernel
+        KERNEL=""
+        for k in "/boot/vmlinuz-$(uname -r)" "/boot/vmlinuz-$(uname -r | sed 's/\.[0-9]*-.*//')"; do
+            if [[ -f "$k" ]]; then
+                KERNEL="$k"
+                break
+            fi
+        done
+        if [[ -z "$KERNEL" ]]; then
+            KERNEL=$(find /boot -name 'vmlinuz-*' -maxdepth 1 2>/dev/null | head -1)
+        fi
+
+        if [[ ! -f "$KERNEL" ]]; then
+            fail "Kernel not found: $KERNEL"
+            fail "Use --custom-kernel to boot with a custom-built kernel"
+            exit 1
+        fi
     fi
 
     if [[ ! -f "$MODULE" ]]; then
         fail "Module not found: $MODULE"
         log "Run ./build-kmod.sh first"
         exit 1
+    fi
+
+    # Check that the module vermagic matches the kernel we'll boot
+    local host_kver
+    host_kver="$(uname -r)"
+    local module_vermagic
+    module_vermagic=$(modinfo "$MODULE" 2>/dev/null | grep -oP 'vermagic:\s+\K.*' | head -1 || echo "unknown")
+    local module_kver
+    module_kver=$(echo "$module_vermagic" | sed 's/ .*//' | head -1 || echo "unknown")
+
+    if $CUSTOM_KERNEL; then
+        # With custom kernel, the module vermagic must match the custom kernel
+        if [[ "$module_kver" != "$CUSTOM_KVER" ]]; then
+            warn "Module vermagic ($module_kver) doesn't match custom kernel ($CUSTOM_KVER)"
+            log "Rebuilding module against custom kernel..."
+            if ! ./build-kmod.sh custom 2>&1; then
+                fail "Module rebuild against custom kernel failed"
+                exit 1
+            fi
+            module_vermagic=$(modinfo "$MODULE" 2>/dev/null | grep -oP 'vermagic:\s+\K.*' | head -1 || echo "unknown")
+            module_kver=$(echo "$module_vermagic" | sed 's/ .*//' | head -1 || echo "unknown")
+        fi
+        log "Module vermagic: $module_kver (custom kernel)"
+    else
+        # With host kernel, the module must match the host kernel version
+        if [[ "$module_kver" != "$host_kver" ]]; then
+            warn "Module vermagic ($module_kver) doesn't match host kernel ($host_kver)"
+            log "Rebuilding module against host kernel..."
+            if ! ./build-kmod.sh build 2>&1; then
+                fail "Module rebuild failed"
+                exit 1
+            fi
+            module_vermagic=$(modinfo "$MODULE" 2>/dev/null | grep -oP 'vermagic:\s+\K.*' | head -1 || echo "unknown")
+            module_kver=$(echo "$module_vermagic" | sed 's/ .*//' | head -1 || echo "unknown")
+            if [[ "$module_kver" != "$host_kver" ]]; then
+                fail "Module still doesn't match host kernel after rebuild"
+                fail "Module: $module_kver, Host: $host_kver"
+                fail "You may need to install kernel headers: sudo pacman -S linux-headers"
+                exit 1
+            fi
+        fi
+        log "Module vermagic: $module_kver (host kernel)"
     fi
 
     ok "Prerequisites met"
@@ -100,7 +183,34 @@ check_prereqs() {
 }
 
 build_rootfs() {
-    if [[ -f "$ROOTFS" ]] && ! $FORCE_REBUILD; then
+    # Check if rootfs needs rebuilding
+    local needs_rebuild=false
+    if $FORCE_REBUILD; then
+        needs_rebuild=true
+    elif [[ ! -f "$ROOTFS" ]]; then
+        needs_rebuild=true
+    else
+        # Check if module or test binaries are newer than the rootfs
+        if [[ "$MODULE" -nt "$ROOTFS" ]]; then
+            log "Module is newer than rootfs — rebuilding"
+            needs_rebuild=true
+        fi
+        for bin in tests/kernel/test_stress_concurrent tests/kernel/test_stress_unload \
+                   tests/kernel/test_stress_pressure tests/kernel/test_cpu_overhead \
+                   tests/kernel/test_drain_restore tests/kernel/test_perf_harness \
+                   tests/kernel/test_transparent_e2e \
+                   tests/kernel/kselftest-minimem.sh tests/kernel/minimem_e2e_test.sh \
+                   tests/kernel/test_transparent_compress.sh tests/kernel/test_transparent_kprobe.sh \
+                   tests/kernel/test_scanner_roundtrip.sh; do
+            if [[ -f "$SCRIPT_DIR/$bin" ]] && [[ "$SCRIPT_DIR/$bin" -nt "$ROOTFS" ]]; then
+                log "Test binary $bin is newer than rootfs — rebuilding"
+                needs_rebuild=true
+                break
+            fi
+        done
+    fi
+
+    if ! $needs_rebuild; then
         log "Using existing rootfs: $ROOTFS"
         return 0
     fi
@@ -131,7 +241,14 @@ build_rootfs() {
     # Create /tmp, /sys, /proc if missing
     mkdir -p "$root"/{tmp,sys,proc,dev}
 
-    # Create init script
+    # Create init script (KERNEL_VERSION is expanded at rootfs build time)
+    local INIT_KVER
+    if $CUSTOM_KERNEL && [[ -n "${CUSTOM_KVER:-}" ]]; then
+        INIT_KVER="$CUSTOM_KVER"
+    else
+        INIT_KVER="$(uname -r)"
+    fi
+
     cat > "$root/init" << 'INITEOF'
 #!/bin/sh
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
@@ -156,18 +273,40 @@ insmod /lib/modules/$(uname -r)/kernel/lib/lz4/lz4_compress.ko 2>/dev/null || \
 
 # Load MiniMem module
 echo "Loading minimem module..."
-insmod /minimem.ko
+insmod /minimem.ko 2>/dev/null
 if [ $? -ne 0 ]; then
-    echo "FATAL: Failed to load minimem module"
-    echo "FATAL: Check dmesg below"
-    dmesg | tail -20
-    echo "PANIC_MARKER: module_load_failed"
-    # Don't power off — let the host see the error
-    exec /bin/sh
+    # Try force-loading if vermagic mismatch
+    echo "Normal insmod failed, trying with --force..."
+    insmod -f /minimem.ko 2>/dev/null
+    if [ $? -ne 0 ]; then
+        # Try modprobe as last resort
+        modprobe minimem 2>/dev/null
+        if [ $? -ne 0 ]; then
+            echo "FATAL: Failed to load minimem module"
+            echo "FATAL: Check dmesg below"
+            dmesg | tail -20
+            echo "PANIC_MARKER: module_load_failed"
+            # Don't power off — let the host see the error
+            exec /bin/sh
+        fi
+    fi
 fi
 
 echo "Module loaded successfully"
 echo ""
+
+ensure_module_loaded() {
+    if [ ! -d /sys/kernel/minimem ]; then
+        echo "Re-loading minimem module..."
+        insmod /minimem.ko 2>/dev/null || insmod -f /minimem.ko 2>/dev/null || modprobe minimem 2>/dev/null
+        sleep 1
+        if [ ! -d /sys/kernel/minimem ]; then
+            echo "WARNING: Failed to reload minimem module"
+            return 1
+        fi
+    fi
+    return 0
+}
 
 # Run kselftest first (before any state modifications)
 echo "=== Running kselftest ==="
@@ -179,12 +318,7 @@ echo "=== Running E2E test ==="
 sh /minimem_e2e_test.sh
 echo ""
 
-# Re-load module if E2E test unloaded it
-if [ ! -d /sys/kernel/minimem ]; then
-    echo "Re-loading minimem module (E2E test unloaded it)..."
-    insmod /minimem.ko
-    sleep 1
-fi
+ensure_module_loaded
 
 # Run transparent compression test (compress → PTE replace → fault → verify)
 echo "=== Running transparent compression test ==="
@@ -196,6 +330,35 @@ echo "=== Running kprobe transparent compression test ==="
 sh /test_transparent_kprobe.sh
 echo ""
 
+ensure_module_loaded
+
+# Run scanner roundtrip test (full pipeline: scanner + fault handler + data integrity)
+if [ -x /test_scanner_roundtrip.sh ]; then
+    echo "=== Running scanner roundtrip test ==="
+    sh /test_scanner_roundtrip.sh
+    echo ""
+fi
+
+ensure_module_loaded
+
+# Run CPU overhead test
+if [ -x /test_cpu_overhead ]; then
+    echo "=== Running CPU overhead measurement ==="
+    /test_cpu_overhead
+    echo ""
+fi
+
+ensure_module_loaded
+
+# Run drain-and-restore test
+if [ -x /test_drain_restore ]; then
+    echo "=== Running drain-and-restore test ==="
+    /test_drain_restore
+    echo ""
+fi
+
+ensure_module_loaded
+
 # Run stress tests if available
 if [ -x /test_stress_concurrent ]; then
     echo "=== Running concurrent fault stress test ==="
@@ -203,16 +366,43 @@ if [ -x /test_stress_concurrent ]; then
     echo ""
 fi
 
+ensure_module_loaded
+
 if [ -x /test_stress_unload ]; then
     echo "=== Running module unload safety test ==="
     /test_stress_unload
     echo ""
 fi
 
+ensure_module_loaded
+
 if [ -x /test_stress_pressure ]; then
     echo "=== Running memory pressure stress test ==="
     /test_stress_pressure 16 2
     echo ""
+fi
+
+ensure_module_loaded
+
+# Run performance harness (latency, throughput, concurrency, activity, overhead, re-compression)
+if [ -x /test_perf_harness ]; then
+    AVAIL_KB=$(cat /proc/meminfo | grep MemAvailable | awk '{print $2}')
+    if [ "$AVAIL_KB" -gt 4000000 ]; then
+        echo "=== Running performance harness (full test, ${AVAIL_KB}KB available) ==="
+        /test_perf_harness --pages 2048 --threads 8 --rounds 3 --csv /tmp/minimem-perf-results.csv
+    elif [ "$AVAIL_KB" -gt 1000000 ]; then
+        echo "=== Running performance harness (medium test, ${AVAIL_KB}KB available) ==="
+        /test_perf_harness --pages 512 --threads 4 --rounds 2 --csv /tmp/minimem-perf-results.csv
+    else
+        echo "=== Running performance harness (quick test, ${AVAIL_KB}KB available) ==="
+        /test_perf_harness --quick --csv /tmp/minimem-perf-results.csv
+    fi
+    echo ""
+    if [ -f /tmp/minimem-perf-results.csv ]; then
+        echo "=== Performance results ==="
+        cat /tmp/minimem-perf-results.csv
+        echo ""
+    fi
 fi
 
 # Check for kernel errors after kselftest
@@ -221,11 +411,7 @@ dmesg | grep -iE "minimem" | tail -5 || true
 echo ""
 
 # Re-load module if kselftest unloaded it
-if [ ! -d /sys/kernel/minimem ]; then
-    echo "Re-loading minimem module (kselftest unloaded it)..."
-    insmod /minimem.ko
-    sleep 1
-fi
+ensure_module_loaded
 
 # Check sysfs
 echo "=== Sysfs stats ==="
@@ -364,42 +550,76 @@ INITEOF
     chmod +x "$root/test_transparent_e2e"
 
     # Copy stress test binaries (if built)
-    for bin in test_stress_concurrent test_stress_pressure test_stress_unload; do
+    for bin in test_stress_concurrent test_stress_pressure test_stress_unload \
+               test_cpu_overhead test_drain_restore test_perf_harness; do
         if [ -f "$SCRIPT_DIR/tests/kernel/$bin" ]; then
             cp "$SCRIPT_DIR/tests/kernel/$bin" "$root/$bin"
             chmod +x "$root/$bin"
         fi
     done
 
+    # Copy scanner roundtrip test script
+    if [ -f "$SCRIPT_DIR/tests/kernel/test_scanner_roundtrip.sh" ]; then
+        cp "$SCRIPT_DIR/tests/kernel/test_scanner_roundtrip.sh" "$root/test_scanner_roundtrip.sh"
+        chmod +x "$root/test_scanner_roundtrip.sh"
+    fi
+
     # Copy kernel modules we need (lz4_compress)
     local kmod_dir
-    kmod_dir="/lib/modules/$(uname -r)"
-    mkdir -p "$root/lib/modules/$(uname -r)"
+    local target_kver
+    if $CUSTOM_KERNEL && [[ -n "${CUSTOM_KVER:-}" ]]; then
+        # Use custom kernel's module directory
+        kmod_dir="$CUSTOM_MODDIR"
+        target_kver="$CUSTOM_KVER"
+    else
+        kmod_dir="/lib/modules/$(uname -r)"
+        target_kver="$(uname -r)"
+    fi
+    mkdir -p "$root/lib/modules/$target_kver"
 
     # lz4_compress may be built-in or a module
-    mkdir -p "$root/lib/modules/$(uname -r)"
+    mkdir -p "$root/lib/modules/$target_kver"
 
     if ls "$kmod_dir/kernel/lib/lz4/"*.ko.zst 2>/dev/null; then
-        mkdir -p "$root/lib/modules/$(uname -r)/kernel/lib/lz4"
+        mkdir -p "$root/lib/modules/$target_kver/kernel/lib/lz4"
         for f in "$kmod_dir/kernel/lib/lz4/"*.ko.zst; do
-            zstd -d -f "$f" -o "$root/lib/modules/$(uname -r)/kernel/lib/lz4/$(basename "${f%.zst}")" 2>/dev/null || \
-                cp "$f" "$root/lib/modules/$(uname -r)/kernel/lib/lz4/"
+            zstd -d -f "$f" -o "$root/lib/modules/$target_kver/kernel/lib/lz4/$(basename "${f%.zst}")" 2>/dev/null || \
+                cp "$f" "$root/lib/modules/$target_kver/kernel/lib/lz4/"
         done
         if [ -f "$kmod_dir/modules.dep" ]; then
-            cp "$kmod_dir/modules.dep" "$root/lib/modules/$(uname -r)/"
-            cp "$kmod_dir/modules.dep.bin" "$root/lib/modules/$(uname -r)/" 2>/dev/null || true
+            cp "$kmod_dir/modules.dep" "$root/lib/modules/$target_kver/"
+            cp "$kmod_dir/modules.dep.bin" "$root/lib/modules/$target_kver/" 2>/dev/null || true
         fi
         ok "LZ4 module copied (decompressed)"
     elif ls "$kmod_dir/kernel/lib/lz4/"*.ko 2>/dev/null; then
-        mkdir -p "$root/lib/modules/$(uname -r)/kernel/lib/lz4"
-        cp "$kmod_dir/kernel/lib/lz4/"*.ko "$root/lib/modules/$(uname -r)/kernel/lib/lz4/"
+        mkdir -p "$root/lib/modules/$target_kver/kernel/lib/lz4"
+        cp "$kmod_dir/kernel/lib/lz4/"*.ko "$root/lib/modules/$target_kver/kernel/lib/lz4/"
         if [ -f "$kmod_dir/modules.dep" ]; then
-            cp "$kmod_dir/modules.dep" "$root/lib/modules/$(uname -r)/"
-            cp "$kmod_dir/modules.dep.bin" "$root/lib/modules/$(uname -r)/" 2>/dev/null || true
+            cp "$kmod_dir/modules.dep" "$root/lib/modules/$target_kver/"
+            cp "$kmod_dir/modules.dep.bin" "$root/lib/modules/$target_kver/" 2>/dev/null || true
         fi
         ok "LZ4 module copied"
     else
         log "LZ4 appears built-in to kernel"
+    fi
+
+    # For custom kernel: also include all custom kernel modules in the rootfs
+    if $CUSTOM_KERNEL && [[ -d "$CUSTOM_MODDIR" ]]; then
+        log "Copying custom kernel modules to rootfs..."
+        # Copy essential modules (but skip the huge ones we don't need for initrd)
+        mkdir -p "$root/lib/modules/$CUSTOM_KVER"
+        # Copy modules.dep and other metadata
+        for f in modules.dep modules.dep.bin modules.alias modules.alias.bin \
+                 modules.symbols modules.builtin modules.builtin.modinfo modules.order; do
+            if [ -f "$CUSTOM_MODDIR/$f" ]; then
+                cp "$CUSTOM_MODDIR/$f" "$root/lib/modules/$CUSTOM_KVER/"
+            fi
+        done
+        # We don't copy all modules to keep the initrd small — the custom kernel
+        # has CONFIG_MINIMEM=y built-in, so no external module needed for that.
+        # However, the MiniMem loadable module is still needed for the actual
+        # compression logic (the built-in part is only the fault handler stub).
+        ok "Custom kernel module metadata copied"
     fi
 
     # Create cpio archive
@@ -411,10 +631,44 @@ INITEOF
 }
 
 run_vm_test() {
-    local kernel_cmdline="console=ttyS0 panic=-1 quiet rdinit=/init root=/dev/ram0"
+    local kernel_cmdline="console=ttyS0 panic=-1 rdinit=/init root=/dev/ram0"
+
+    # Check if host has enough memory for the VM
+    local host_mem_kb
+    host_mem_kb=$(grep MemAvailable /proc/meminfo 2>/dev/null | awk '{print $2}')
+    if [[ -n "$host_mem_kb" ]]; then
+        # Convert VM_RAM to KB for comparison (handle M and G suffixes)
+        local vm_ram_kb
+        case "$VM_RAM" in
+            *G) vm_ram_kb=$((${VM_RAM%G} * 1024 * 1024)) ;;
+            *M) vm_ram_kb=$((${VM_RAM%M} * 1024)) ;;
+            *)  vm_ram_kb=$((VM_RAM * 1024)) ;;
+        esac
+        # Need at least 1.5x VM RAM available to avoid host OOM
+        local required_kb=$((vm_ram_kb * 3 / 2))
+        if [[ "$host_mem_kb" -lt "$required_kb" ]] 2>/dev/null; then
+            warn "Host only has $((host_mem_kb / 1024))MB available"
+            warn "VM requests ${VM_RAM} — need at least $((required_kb / 1024))MB free"
+            warn "Tests may be slow or fail due to host memory pressure"
+            echo ""
+            read -t 10 -p "Continue anyway? [y/N] " cont 2>/dev/null || cont="n"
+            [[ "${cont,,}" == "y" ]] || { fail "Aborted due to insufficient host memory"; return 1; }
+        fi
+    fi
+
+    local qemu_extra_args=""
+    if $CUSTOM_KERNEL && [[ -n "${CUSTOM_KVER:-}" ]]; then
+        # When using custom kernel, also pass the custom kernel's modules as a virtiofs
+        # or simply rely on the initrd containing the needed modules
+        log "Using custom kernel: $CUSTOM_KVER"
+        log "  MINIMEM is built into the kernel (CONFIG_MINIMEM=y)"
+    fi
 
     if $SHELL_MODE; then
         # Interactive shell — just boot and drop to shell
+        local kvm_arg=""
+        [ -w /dev/kvm ] 2>/dev/null && kvm_arg="-enable-kvm"
+
         qemu-system-x86_64 \
             -m "$VM_RAM" \
             -smp "$VM_CPUS" \
@@ -424,7 +678,8 @@ run_vm_test() {
             -nographic \
             -no-reboot \
             -monitor none \
-            -serial stdio
+            -serial stdio \
+            $kvm_arg
         return $?
     fi
 
@@ -432,13 +687,32 @@ run_vm_test() {
     log "Booting VM (timeout: ${VM_TIMEOUT}s)..."
     log "  RAM: $VM_RAM, CPUs: $VM_CPUS"
 
+    # Auto-increase timeout for large RAM or no-KVM
+    local effective_timeout="$VM_TIMEOUT"
+    if [ ! -w /dev/kvm ] 2>/dev/null; then
+        effective_timeout=$((VM_TIMEOUT * 2))
+        log "  No KVM — doubling timeout to ${effective_timeout}s"
+    fi
+
     local output_file="$VM_DIR/vm_output.log"
     local timeout_file="$VM_DIR/timeout_flag"
 
     rm -f "$timeout_file"
 
     # Run VM with timeout
-    timeout "${VM_TIMEOUT}s" qemu-system-x86_64 \
+    # Use --foreground so Ctrl-C propagates properly
+    # Use -enable-kvm if available for much faster boot, fall back to TCG
+    local kvm_arg=""
+    if [ -w /dev/kvm ] 2>/dev/null; then
+        kvm_arg="-enable-kvm"
+        log "KVM acceleration available"
+    else
+        log "KVM not available — using TCG (will be slower)"
+    fi
+
+    log "Starting QEMU..."
+    timeout --foreground "${effective_timeout}s" \
+        qemu-system-x86_64 \
         -m "$VM_RAM" \
         -smp "$VM_CPUS" \
         -kernel "$KERNEL" \
@@ -448,6 +722,7 @@ run_vm_test() {
         -no-reboot \
         -monitor none \
         -serial stdio \
+        $kvm_arg \
         2>&1 | tee "$output_file" || true
 
     if [[ ! -f "$output_file" ]]; then
@@ -476,7 +751,18 @@ run_vm_test() {
         failed=true
     fi
 
-    # Extract benchmark results
+    # ── Extract compatibility report ──
+    echo ""
+    log "=== Compatibility Report ==="
+    if grep -q "compat_report" "$output_file"; then
+        grep -A1 "compat_report" "$output_file" | grep -E "kernel_version|kallsyms|kprobes|required_symbols|swp_type|pte_mkwrite|kernel_patches|page_idle|zsmalloc|folio_rmap|fail_count|overall" | while read -r line; do
+            echo "  $line"
+        done
+    else
+        echo "  (not captured in VM output)"
+    fi
+
+    # ── Extract benchmark results ──
     local baseline_ns
     baseline_ns=$(grep -oP 'compress_ns_total \K[0-9]+' "$output_file" | head -1 || echo "N/A")
     serial_decompress=$(grep -oP 'decompress_ns_total \K[0-9]+' "$output_file" | head -1 || echo "N/A")
@@ -484,7 +770,7 @@ run_vm_test() {
     zswap_pages=$(grep -oP 'zswap_pages \K[0-9]+' "$output_file" | tail -1 || echo "N/A")
 
     echo ""
-    log "=== Results ==="
+    log "=== Core Results ==="
     echo "  Module load:        $(grep -q 'Module loaded successfully' "$output_file" && echo 'OK' || echo 'FAILED')"
     echo "  Module unload:      $(grep -q 'Module unloaded' "$output_file" && echo 'OK' || echo 'FAILED')"
     echo "  Baseline test:      $(grep -q 'baseline' "$output_file" && echo 'OK' || echo 'N/A')"
@@ -497,6 +783,77 @@ run_vm_test() {
     echo "  max_pool_pages:    $(grep 'max_pool_pages' "$output_file" | tail -1 | awk '{print $NF}' || echo 'N/A')"
     echo "  min_savings_pct:   $(grep 'min_savings_pct' "$output_file" | tail -1 | awk '{print $NF}' || echo 'N/A')"
     echo "  scanner_enabled:   $(grep 'scanner_enabled' "$output_file" | tail -1 | awk '{print $NF}' || echo 'N/A')"
+    echo ""
+
+    # ── Extract performance harness results ──
+    echo ""
+    log "=== Performance Harness Results ==="
+    if grep -q "Performance Harness Results" "$output_file"; then
+        grep -A2 "Test 1: Compression & Decompression Latency" "$output_file" | grep -E "decompress|PASS|WARN|FAIL|p50|p99" | head -5
+        echo "  ---"
+        grep -A5 "Test 5: Memory Overhead" "$output_file" | grep -E "Compression ratio|Savings|Overhead|PASS|WARN|FAIL" | head -5
+        echo "  ---"
+        grep -A3 "Test 6: Scanner-driven Re-compression" "$output_file" | grep -E "PASS|FAIL|SKIP|scanner" | head -3
+    else
+        echo "  (performance harness did not run)"
+    fi
+
+    # ── Extract latency numbers from sysfs ──
+    echo ""
+    log "=== Latency Summary ==="
+    local comp_avg decomp_avg comp_count decomp_count
+    comp_avg=$(grep -oP 'compress_avg_ns \K[0-9]+' "$output_file" | tail -1 || echo "N/A")
+    decomp_avg=$(grep -oP 'decompress_avg_ns \K[0-9]+' "$output_file" | tail -1 || echo "N/A")
+    comp_count=$(grep -oP 'compress_count \K[0-9]+' "$output_file" | tail -1 || echo "0")
+    decomp_count=$(grep -oP 'decompress_count \K[0-9]+' "$output_file" | tail -1 || echo "0")
+    echo "  Compress avg:    ${comp_avg} ns"
+    echo "  Decompress avg:  ${decomp_avg} ns"
+    echo "  Compress count:  ${comp_count}"
+    echo "  Decompress count: ${decomp_count}"
+
+    if [[ "$decomp_avg" != "N/A" ]] && [[ "$decomp_avg" -gt 0 ]] 2>/dev/null; then
+        local decomp_us
+        decomp_us=$(echo "scale=1; $decomp_avg / 1000" | bc 2>/dev/null || echo "N/A")
+        echo "  Decompress latency: ${decomp_us} us"
+        if [[ "$decomp_avg" -lt 10000 ]]; then
+            echo "  Verdict: EXCELLENT (< 10us)"
+        elif [[ "$decomp_avg" -lt 50000 ]]; then
+            echo "  Verdict: GOOD (< 50us)"
+        elif [[ "$decomp_avg" -lt 100000 ]]; then
+            echo "  Verdict: ACCEPTABLE (< 100us)"
+        else
+            echo "  Verdict: SLOW (> 100us)"
+        fi
+    fi
+
+    # ── Extract throughput ──
+    local bytes_saved
+    bytes_saved=$(grep -oP 'bytes_saved \K[0-9]+' "$output_file" | tail -1 || echo "0")
+    pool_pages=$(grep -oP 'pool_pages \K[0-9]+' "$output_file" | tail -1 || echo "0")
+    echo ""
+    log "=== Throughput & Efficiency ==="
+    echo "  Bytes saved:     ${bytes_saved}"
+    echo "  Pool pages:      ${pool_pages}"
+    if [[ "$zswap_pages" -gt 0 ]] && [[ "$bytes_saved" -gt 0 ]] 2>/dev/null; then
+        local ratio
+        ratio=$(echo "scale=2; $bytes_saved / ($zswap_pages * 4096) * 100" | bc 2>/dev/null || echo "N/A")
+        echo "  Savings ratio:   ${ratio}%"
+    fi
+
+    # ── Scanner stats ──
+    echo ""
+    log "=== Scanner Stats ==="
+    local scan_scanned scan_compressed scan_skipped scan_idle
+    scan_scanned=$(grep -oP 'scanner_pages_scanned \K[0-9]+' "$output_file" | tail -1 || echo "0")
+    scan_compressed=$(grep -oP 'scanner_pages_compressed \K[0-9]+' "$output_file" | tail -1 || echo "0")
+    scan_skipped=$(grep -oP 'scanner_pages_skipped \K[0-9]+' "$output_file" | tail -1 || echo "0")
+    scan_idle=$(grep -oP 'scanner_pages_idle \K[0-9]+' "$output_file" | tail -1 || echo "0")
+    echo "  Pages scanned:     ${scan_scanned}"
+    echo "  Pages idle:        ${scan_idle}"
+    echo "  Pages compressed:  ${scan_compressed}"
+    echo "  Pages skipped:     ${scan_skipped}"
+
+    # ── Test pass/fail counts ──
     echo ""
     local kselftest_pass
     kselftest_pass=$(grep '^PASS: ' "$output_file" 2>/dev/null | wc -l)
@@ -523,6 +880,24 @@ run_vm_test() {
     echo "  e2e FAIL:          ${e2e_only_fail:-0}"
     echo "  e2e SKIP:          ${e2e_only_skip:-0}"
     echo ""
+
+    # ── Bad page state / oops check ──
+    local bad_page oops bug
+    bad_page=$(grep -c "Bad page state" "$output_file" 2>/dev/null || echo "0")
+    oops=$(grep -c "Oops:" "$output_file" 2>/dev/null || echo "0")
+    bug=$(grep -ci "BUG:" "$output_file" 2>/dev/null || echo "0")
+    if [[ "$bad_page" -gt 0 ]] || [[ "$oops" -gt 0 ]] || [[ "$bug" -gt 0 ]]; then
+        fail "Kernel issues detected: Bad page state=$bad_page Oops=$oops BUG=$bug"
+        failed=true
+    else
+        ok "No kernel issues (Bad page state, Oops, BUG)"
+    fi
+
+    echo ""
+    log "=== VM Configuration ==="
+    echo "  RAM: $VM_RAM"
+    echo "  CPUs: $VM_CPUS"
+    echo "  Timeout: ${VM_TIMEOUT}s"
 
     if grep -q "All tests passed!" "$output_file"; then
         ok "All VM tests passed!"

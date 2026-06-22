@@ -10,15 +10,47 @@ be applied after it.
 
 Signed-off-by: MiniMem Project <minimem@noreply.github.com>
 ---
- mm/minimem_fault.c | 30 ++++++++++++++++++++++++++++++
- 1 file changed, 30 insertions(+)
+ mm/Kconfig            | 10 ++++++++++
+ mm/Makefile            |  1 +
+ mm/minimem_fault.c     | 39 +++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 50 insertions(+)
 
+diff --git a/mm/Kconfig b/mm/Kconfig
+index ca3f146bcf3c..4af0eed23f7a 100644
+--- a/mm/Kconfig
++++ b/mm/Kconfig
+@@ -1381,6 +1381,16 @@ config PT_RECLAIM
+ config FIND_NORMAL_PAGE
+ 	def_bool n
+ 
++config MINIMEM
++	bool "MiniMem transparent memory compression"
++	depends on MMU
++	help
++	  Enable MiniMem transparent in-memory page compression. When
++	  enabled, idle pages can be compressed in-place and replaced
++	  with PTE markers. A fault handler decompresses on access.
++
++	  If unsure, say N.
++
+ source "mm/damon/Kconfig"
+ 
+ endmenu
+diff --git a/mm/Makefile b/mm/Makefile
+index 21abb3353aae..ef104ba60910 100644
+--- a/mm/Makefile
++++ b/mm/Makefile
+@@ -146,3 +146,4 @@ obj-$(CONFIG_SHRINKER_DEBUG) += shrinker_debug.o
+ obj-$(CONFIG_EXECMEM) += execmem.o
+ obj-$(CONFIG_TMPFS_QUOTA) += shmem_quota.o
+ obj-$(CONFIG_PT_RECLAIM) += pt_reclaim.o
++obj-$(CONFIG_MINIMEM) += minimem_fault.o
 diff --git a/mm/minimem_fault.c b/mm/minimem_fault.c
 new file mode 100644
-index 000000000000..123456789abc
+index 000000000000..20eaf566a1d2
 --- /dev/null
 +++ b/mm/minimem_fault.c
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,39 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
 + * minimem_fault.c — Kernel-side MiniMem fault handler registration

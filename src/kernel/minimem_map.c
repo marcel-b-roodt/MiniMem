@@ -12,6 +12,7 @@
 #include <linux/slab.h>
 #include <linux/xarray.h>
 #include <linux/spinlock.h>
+#include <linux/rwsem.h>
 #include <linux/errno.h>
 
 #include "minimem_map.h"
@@ -22,6 +23,7 @@ int minimem_map_init(struct minimem_map *map)
 {
 	xa_init(&map->entries);
 	spin_lock_init(&map->lock);
+	init_rwsem(&map->rwsem);
 	atomic64_set(&map->count, 0);
 
 	minimem_entry_cache = kmem_cache_create("minimem_map_entry",
@@ -97,11 +99,22 @@ int minimem_map_lookup(struct minimem_map *map, unsigned long vaddr,
 	return 0;
 }
 
+void minimem_map_read_lock(struct minimem_map *map)
+{
+	down_read(&map->rwsem);
+}
+
+void minimem_map_read_unlock(struct minimem_map *map)
+{
+	up_read(&map->rwsem);
+}
+
 int minimem_map_remove(struct minimem_map *map, unsigned long vaddr)
 {
 	unsigned long index = vaddr >> PAGE_SHIFT;
 	struct minimem_map_entry *entry;
 
+	down_write(&map->rwsem);
 	spin_lock(&map->lock);
 	entry = xa_erase(&map->entries, index);
 	if (entry) {
@@ -109,6 +122,7 @@ int minimem_map_remove(struct minimem_map *map, unsigned long vaddr)
 		kmem_cache_free(minimem_entry_cache, entry);
 	}
 	spin_unlock(&map->lock);
+	up_write(&map->rwsem);
 
 	return entry ? 0 : -ENOENT;
 }
@@ -118,12 +132,14 @@ void minimem_map_remove_all(struct minimem_map *map)
 	struct minimem_map_entry *entry;
 	unsigned long index;
 
+	down_write(&map->rwsem);
 	xa_for_each(&map->entries, index, entry) {
 		xa_erase(&map->entries, index);
 		kmem_cache_free(minimem_entry_cache, entry);
 	}
 
 	atomic64_set(&map->count, 0);
+	up_write(&map->rwsem);
 }
 
 unsigned long minimem_map_drain(struct minimem_map *map,
@@ -135,6 +151,7 @@ unsigned long minimem_map_drain(struct minimem_map *map,
 	unsigned long index;
 	unsigned long drained = 0;
 
+	down_write(&map->rwsem);
 	spin_lock(&map->lock);
 	xa_for_each(&map->entries, index, entry) {
 		struct minimem_map_entry copy;
@@ -157,6 +174,7 @@ unsigned long minimem_map_drain(struct minimem_map *map,
 		drained++;
 	}
 	spin_unlock(&map->lock);
+	up_write(&map->rwsem);
 
 	return drained;
 }

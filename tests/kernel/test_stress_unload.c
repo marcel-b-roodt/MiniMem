@@ -64,6 +64,8 @@ static int load_module(void)
 		return 0;
 	int ret = system("insmod /minimem.ko 2>/dev/null");
 	if (ret != 0)
+		ret = system("insmod -f /minimem.ko 2>/dev/null");
+	if (ret != 0)
 		ret = system("modprobe minimem 2>/dev/null");
 	return module_loaded() ? 0 : -1;
 }

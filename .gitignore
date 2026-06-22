@@ -37,6 +37,9 @@ tests/kernel/test_transparent_e2e
 tests/kernel/test_stress_concurrent
 tests/kernel/test_stress_pressure
 tests/kernel/test_stress_unload
+tests/kernel/test_cpu_overhead
+tests/kernel/test_drain_restore
+tests/kernel/test_perf_harness
 
 # Example binaries
 examples/minimem_compress_buffer
@@ -45,3 +48,7 @@ examples/*
 
 # VM test artifacts (downloaded rootfs, cpio, logs)
 .vm-test/
+
+# Custom kernel build artifacts (large, machine-specific)
+.kernel/
+.kernel-build/

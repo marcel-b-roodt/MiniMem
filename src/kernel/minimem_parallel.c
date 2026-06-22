@@ -63,7 +63,7 @@ static void minimem_cluster_worker(struct work_struct *work)
 	struct minimem_cluster_ctx *ctx;
 	struct minimem_decompress_result dres;
 	struct zs_pool *pool;
-	void *local_buf, *dst_addr;
+	void *local_buf, *zs_addr, *dst_addr;
 	int ret;
 
 	item = container_of(work, struct minimem_cluster_work, work);
@@ -81,12 +81,17 @@ static void minimem_cluster_worker(struct work_struct *work)
 		goto out;
 	}
 
-	zs_obj_read_begin(pool, item->entry.zs_handle, local_buf);
+	zs_addr = zs_obj_read_begin(pool, item->entry.zs_handle, local_buf);
+	if (!zs_addr) {
+		kfree(local_buf);
+		item->status = -EIO;
+		goto out;
+	}
 
 	if (item->page) {
 		dst_addr = kmap_local_page(item->page);
 		if (!dst_addr) {
-			zs_obj_read_end(pool, item->entry.zs_handle, local_buf);
+			zs_obj_read_end(pool, item->entry.zs_handle, zs_addr);
 			kfree(local_buf);
 			item->status = -EFAULT;
 			goto out;
@@ -95,14 +100,14 @@ static void minimem_cluster_worker(struct work_struct *work)
 		dst_addr = item->decompress_buf;
 	}
 
-	ret = minimem_decompress_page(local_buf, item->entry.compressed_len,
+	ret = minimem_decompress_page(zs_addr, item->entry.compressed_len,
 				      item->entry.algo_id, dst_addr,
 				      MINIMEM_PAGE_SIZE, &dres);
 
 	if (item->page)
 		kunmap_local(dst_addr);
 
-	zs_obj_read_end(pool, item->entry.zs_handle, local_buf);
+	zs_obj_read_end(pool, item->entry.zs_handle, zs_addr);
 	kfree(local_buf);
 
 	item->status = ret;
@@ -181,9 +186,13 @@ int minimem_parallel_decompress(unsigned long *vaddrs,
 
 	map = minimem_zswap_map();
 
-	ctx = kzalloc(struct_size(ctx, items, count), GFP_KERNEL);
-	if (!ctx)
+	minimem_map_read_lock(map);
+
+	ctx = kzalloc(struct_size(ctx, items, count), GFP_NOIO);
+	if (!ctx) {
+		minimem_map_read_unlock(map);
 		return -ENOMEM;
+	}
 
 	init_completion(&ctx->done);
 	atomic_set(&ctx->remaining, 0);
@@ -210,7 +219,7 @@ int minimem_parallel_decompress(unsigned long *vaddrs,
 
 		if (!ctx->items[i].page) {
 			ctx->items[i].decompress_buf =
-				kmalloc(MINIMEM_PAGE_SIZE, GFP_KERNEL);
+				kmalloc(MINIMEM_PAGE_SIZE, GFP_NOIO);
 			if (!ctx->items[i].decompress_buf) {
 				ctx->items[i].status = -ENOMEM;
 				if (ctx->first_error == 0)
@@ -246,6 +255,8 @@ int minimem_parallel_decompress(unsigned long *vaddrs,
 
 	ret = ctx->first_error;
 	kfree(ctx);
+
+	minimem_map_read_unlock(map);
 
 	return ret;
 }

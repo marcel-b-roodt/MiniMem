@@ -175,7 +175,7 @@ int minimem_decompress_and_restore(unsigned long vaddr, struct page *page)
 {
 	struct minimem_map_entry entry;
 	struct minimem_decompress_result dres;
-	void *local_buf, *dst_addr;
+	void *local_buf, *local_addr, *dst_addr;
 	unsigned long handle;
 	int ret;
 
@@ -192,12 +192,16 @@ int minimem_decompress_and_restore(unsigned long vaddr, struct page *page)
 	if (!local_buf)
 		return -ENOMEM;
 
-	zs_obj_read_begin(minimem_pool, handle, local_buf);
+	local_addr = zs_obj_read_begin(minimem_pool, handle, local_buf);
+	if (!local_addr) {
+		kfree(local_buf);
+		return -EIO;
+	}
 
 	if (page) {
 		dst_addr = kmap_local_page(page);
 		if (!dst_addr) {
-			zs_obj_read_end(minimem_pool, handle, local_buf);
+			zs_obj_read_end(minimem_pool, handle, local_addr);
 			kfree(local_buf);
 			return -EFAULT;
 		}
@@ -206,7 +210,7 @@ int minimem_decompress_and_restore(unsigned long vaddr, struct page *page)
 		dst_addr = minimem_get_decompress_buf();
 	}
 
-	ret = minimem_decompress_page(local_buf, entry.compressed_len,
+	ret = minimem_decompress_page(local_addr, entry.compressed_len,
 				      entry.algo_id, dst_addr,
 				      MINIMEM_PAGE_SIZE, &dres);
 
@@ -215,7 +219,7 @@ int minimem_decompress_and_restore(unsigned long vaddr, struct page *page)
 	else
 		preempt_enable();
 
-	zs_obj_read_end(minimem_pool, handle, local_buf);
+	zs_obj_read_end(minimem_pool, handle, local_addr);
 	kfree(local_buf);
 
 	if (ret != MINIMEM_OK)
@@ -336,7 +340,7 @@ long minimem_zswap_drain_and_restore(void)
 			     vaddr += PAGE_SIZE) {
 				struct minimem_map_entry entry;
 				struct page *new_page;
-				void *src_buf, *dst_addr;
+				void *src_buf, *zs_addr, *dst_addr;
 				struct minimem_decompress_result dres;
 				int ret;
 
@@ -393,11 +397,17 @@ long minimem_zswap_drain_and_restore(void)
 					continue;
 				}
 
-				zs_obj_read_begin(minimem_pool, entry.zs_handle,
+				zs_addr = zs_obj_read_begin(minimem_pool, entry.zs_handle,
 						  src_buf);
+				if (!zs_addr) {
+					kfree(src_buf);
+					__free_page(new_page);
+					failed++;
+					continue;
+				}
 
 				dst_addr = kmap_local_page(new_page);
-				ret = minimem_decompress_page(src_buf,
+				ret = minimem_decompress_page(zs_addr,
 							      entry.compressed_len,
 							      entry.algo_id,
 							      dst_addr,
@@ -406,7 +416,7 @@ long minimem_zswap_drain_and_restore(void)
 				kunmap_local(dst_addr);
 
 				zs_obj_read_end(minimem_pool, entry.zs_handle,
-						src_buf);
+						zs_addr);
 				kfree(src_buf);
 
 				if (ret != MINIMEM_OK) {
@@ -423,7 +433,7 @@ long minimem_zswap_drain_and_restore(void)
 				new_pte = minimem_mk_pte(new_page,
 							 vma->vm_page_prot);
 				if (vma->vm_flags & VM_WRITE)
-					new_pte = minimem_pte_mkwrite(new_pte);
+					new_pte = minimem_pte_mkwrite(new_pte, vma);
 				new_pte = pte_mkyoung(new_pte);
 
 				ptep = minimem_pte_offset_map_lock(mm, pmd,
@@ -437,6 +447,12 @@ long minimem_zswap_drain_and_restore(void)
 						percpu_counter_add(
 							&mm->rss_stat[MM_ANONPAGES],
 							1);
+						minimem_folio_add_new_anon_rmap(
+							page_folio(new_page),
+							vma, vaddr);
+						minimem_folio_add_lru_vma(
+							page_folio(new_page),
+							vma);
 					} else {
 						__free_page(new_page);
 					}
@@ -452,13 +468,9 @@ long minimem_zswap_drain_and_restore(void)
 					     &mm_total_bytes);
 
 				restored++;
-
-				if (kthread_should_stop())
-					goto out;
 			}
 		}
 
-out:
 		mmap_read_unlock(mm);
 		mmput(mm);
 	}
@@ -468,4 +480,21 @@ out:
 		restored, failed);
 
 	return restored;
+}
+
+void minimem_zswap_zap_cb(struct vm_area_struct *vma,
+			  unsigned long addr, swp_entry_t entry)
+{
+	unsigned long vaddr = addr & PAGE_MASK;
+	struct minimem_map_entry map_entry;
+	int ret;
+
+	ret = minimem_map_lookup(&minimem_map, vaddr, &map_entry);
+	if (ret)
+		return;
+
+	minimem_map_remove(&minimem_map, vaddr);
+	zs_free(minimem_pool, map_entry.zs_handle);
+	atomic64_dec(&mm_stored_pages);
+	atomic64_sub(map_entry.compressed_len, &mm_total_bytes);
 }

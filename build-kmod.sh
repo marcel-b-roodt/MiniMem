@@ -2,47 +2,69 @@
 # Build MiniMem kernel module from a path without spaces
 # (The kernel build system doesn't handle spaces in M= paths)
 #
-# Usage: ./build-kmod.sh           # build
-#        ./build-kmod.sh clean     # clean
-#        ./build-kmod.sh load      # load module
-#        ./build-kmod.sh unload    # unload module
-#        ./build-kmod.sh stats     # show sysfs stats
+# Usage: ./build-kmod.sh              # build against host kernel
+#        ./build-kmod.sh clean        # clean build directory
+#        ./build-kmod.sh build        # build against host kernel
+#        ./build-kmod.sh custom       # build against custom kernel (.kernel/out/)
+#        ./build-kmod.sh load         # load module
+#        ./build-kmod.sh unload       # unload module
+#        ./build-kmod.sh stats        # show sysfs stats
+#        ./build-kmod.sh tests        # build static VM test binaries
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-KVER="$(uname -r)"
 KBUILD="/tmp/minimem-kbuild"
 
-case "${1:-build}" in
-    clean)
-        rm -rf "$KBUILD"
-        echo "Cleaned build directory"
-        ;;
-    build|"")
-        rm -rf "$KBUILD"
-        mkdir -p "$KBUILD/src/kernel/lib/compressors"
-        mkdir -p "$KBUILD/src/kernel/lib/vendor/lz4"
-        mkdir -p "$KBUILD/src/kernel/include"
+# Default: build against host kernel
+KVER="$(uname -r)"
+KERNELDIR="/lib/modules/$(uname -r)/build"
+BUILD_MODE="host"
 
-        # Copy kernel module core
-        cp "$SCRIPT_DIR"/src/kernel/*.c "$SCRIPT_DIR"/src/kernel/*.h "$KBUILD/src/kernel/"
+# Check for custom kernel flag
+if [ "${1:-}" = "custom" ]; then
+    CUSTOM_KERNEL_DIR="$SCRIPT_DIR/.kernel/out"
+    CUSTOM_KVER=$(find "$CUSTOM_KERNEL_DIR/boot" -name 'vmlinuz-*' 2>/dev/null | head -1 | sed 's/.*vmlinuz-//')
+    if [ -z "$CUSTOM_KVER" ]; then
+        echo "ERROR: Custom kernel not found in $CUSTOM_KERNEL_DIR/boot/"
+        echo "Run ./scripts/build-custom-kernel.sh first"
+        exit 1
+    fi
+    KVER="$CUSTOM_KVER"
+    KERNELDIR="$CUSTOM_KERNEL_DIR/lib/modules/$CUSTOM_KVER/build"
+    if [ ! -d "$KERNELDIR" ]; then
+        echo "ERROR: Custom kernel build directory not found: $KERNELDIR"
+        echo "The kernel must be built first."
+        exit 1
+    fi
+    BUILD_MODE="custom"
+fi
 
-        # Copy algorithm library sources
-        cp "$SCRIPT_DIR"/src/lib/minimem.h "$KBUILD/src/kernel/lib/"
-        cp "$SCRIPT_DIR"/src/lib/advisor.c "$SCRIPT_DIR"/src/lib/advisor.h "$KBUILD/src/kernel/lib/"
-        cp "$SCRIPT_DIR"/src/lib/compressors/same_page.* "$KBUILD/src/kernel/lib/compressors/"
-        cp "$SCRIPT_DIR"/src/lib/compressors/bdi.* "$KBUILD/src/kernel/lib/compressors/"
-        cp "$SCRIPT_DIR"/src/lib/compressors/wkdm.* "$KBUILD/src/kernel/lib/compressors/"
-        cp "$SCRIPT_DIR"/src/lib/compressors/wkdm64.* "$KBUILD/src/kernel/lib/compressors/"
-        cp "$SCRIPT_DIR"/src/lib/compressors/block_class.* "$KBUILD/src/kernel/lib/compressors/"
-        cp "$SCRIPT_DIR"/src/lib/compressors/lz4_wrap.* "$KBUILD/src/kernel/lib/compressors/"
-        cp "$SCRIPT_DIR"/src/lib/compressors/delta.* "$KBUILD/src/kernel/lib/compressors/"
+do_build() {
+    rm -rf "$KBUILD"
+    mkdir -p "$KBUILD/src/kernel/lib/compressors"
+    mkdir -p "$KBUILD/src/kernel/lib/vendor/lz4"
+    mkdir -p "$KBUILD/src/kernel/include"
 
-        # Write Makefile
-        cat > "$KBUILD/src/kernel/Makefile" << 'MAKEEOF'
+    # Copy kernel module core
+    cp "$SCRIPT_DIR"/src/kernel/*.c "$SCRIPT_DIR"/src/kernel/*.h "$KBUILD/src/kernel/"
+
+    # Copy algorithm library sources
+    cp "$SCRIPT_DIR"/src/lib/minimem.h "$KBUILD/src/kernel/lib/"
+    cp "$SCRIPT_DIR"/src/lib/advisor.c "$SCRIPT_DIR"/src/lib/advisor.h "$KBUILD/src/kernel/lib/"
+    cp "$SCRIPT_DIR"/src/lib/compressors/same_page.* "$KBUILD/src/kernel/lib/compressors/"
+    cp "$SCRIPT_DIR"/src/lib/compressors/bdi.* "$KBUILD/src/kernel/lib/compressors/"
+    cp "$SCRIPT_DIR"/src/lib/compressors/wkdm.* "$KBUILD/src/kernel/lib/compressors/"
+    cp "$SCRIPT_DIR"/src/lib/compressors/wkdm64.* "$KBUILD/src/kernel/lib/compressors/"
+    cp "$SCRIPT_DIR"/src/lib/compressors/block_class.* "$KBUILD/src/kernel/lib/compressors/"
+    cp "$SCRIPT_DIR"/src/lib/compressors/lz4_wrap.* "$KBUILD/src/kernel/lib/compressors/"
+    cp "$SCRIPT_DIR"/src/lib/compressors/delta.* "$KBUILD/src/kernel/lib/compressors/"
+
+    # Write Makefile (single-quoted heredoc preserves $ for Make variables;
+    # we substitute KERNELDIR separately since it's a shell variable)
+    cat > "$KBUILD/src/kernel/Makefile" << 'MAKEEOF'
 obj-m += minimem.o
-minimem-y := minimem_main.o minimem_compress.o minimem_map.o minimem_zswap.o minimem_parallel.o minimem_fault.o minimem_shrinker.o minimem_scanner.o minimem_hook.o minimem_proc_stats.o
+minimem-y := minimem_main.o minimem_compress.o minimem_map.o minimem_zswap.o minimem_parallel.o minimem_fault.o minimem_shrinker.o minimem_scanner.o minimem_hook.o minimem_proc_stats.o minimem_compat_check.o
 minimem-y += lib/compressors/same_page.o
 minimem-y += lib/compressors/bdi.o
 minimem-y += lib/compressors/wkdm.o
@@ -53,20 +75,21 @@ minimem-y += lib/compressors/delta.o
 minimem-y += lib/advisor.o
 ccflags-y := -I$(src)/include -I$(src) -I$(src)/lib -DMINIMEM_KERNEL
 all:
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+	$(MAKE) -C __KERNELDIR__ M=$(PWD) modules
 clean:
-	$(MAKE) -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+	$(MAKE) -C __KERNELDIR__ M=$(PWD) clean
 .PHONY: all clean
 MAKEEOF
+    sed -i "s|__KERNELDIR__|${KERNELDIR}|g" "$KBUILD/src/kernel/Makefile"
 
-        # Create libc stub headers for kernel build
-        cat > "$KBUILD/src/kernel/include/string.h" << 'STUB'
+    # Create libc stub headers for kernel build
+    cat > "$KBUILD/src/kernel/include/string.h" << 'STUB'
 #ifndef _STRING_H
 #define _STRING_H
 #include <linux/string.h>
 #endif
 STUB
-        cat > "$KBUILD/src/kernel/include/stdbool.h" << 'STUB'
+    cat > "$KBUILD/src/kernel/include/stdbool.h" << 'STUB'
 #ifndef __STDBOOL_H
 #define __STDBOOL_H
 #define bool _Bool
@@ -75,7 +98,7 @@ STUB
 #define __bool_true_false_are_defined 1
 #endif
 STUB
-        cat > "$KBUILD/src/kernel/include/stdint.h" << 'STUB'
+    cat > "$KBUILD/src/kernel/include/stdint.h" << 'STUB'
 #ifndef _STDINT_H
 #define _STDINT_H
 #include <linux/types.h>
@@ -89,13 +112,13 @@ typedef s32 int32_t;
 typedef s64 int64_t;
 #endif
 STUB
-        cat > "$KBUILD/src/kernel/include/stddef.h" << 'STUB'
+    cat > "$KBUILD/src/kernel/include/stddef.h" << 'STUB'
 #ifndef _STDDEF_H
 #define _STDDEF_H
 #include <linux/stddef.h>
 #endif
 STUB
-        cat > "$KBUILD/src/kernel/include/stdlib.h" << 'STUB'
+    cat > "$KBUILD/src/kernel/include/stdlib.h" << 'STUB'
 #ifndef _STDLIB_H
 #define _STDLIB_H
 #include <linux/slab.h>
@@ -105,7 +128,7 @@ STUB
 #define free(x) kfree(x)
 #endif
 STUB
-        cat > "$KBUILD/src/kernel/include/limits.h" << 'STUB'
+    cat > "$KBUILD/src/kernel/include/limits.h" << 'STUB'
 #ifndef _LIMITS_H
 #define _LIMITS_H
 #include <linux/limits.h>
@@ -119,25 +142,40 @@ STUB
 #endif
 STUB
 
-        echo "Building MiniMem kernel module..."
-        echo "  Kernel: $KVER"
-        make -C /lib/modules/$KVER/build M="$KBUILD/src/kernel" modules 2>&1
+    echo "Building MiniMem kernel module..."
+    echo "  Kernel: $KVER"
+    echo "  Build dir: $KERNELDIR"
+    echo "  Mode: $BUILD_MODE"
+    make -C "$KERNELDIR" M="$KBUILD/src/kernel" modules 2>&1
 
-        # Copy module back to source tree
-        cp "$KBUILD/src/kernel/minimem.ko" "$SCRIPT_DIR/src/kernel/minimem.ko"
-        echo ""
-        echo "Module built: src/kernel/minimem.ko"
-        echo "Algorithms compiled: same_page, BDI, WKdm, WKdm-64, block_class, LZ4, delta"
-        echo ""
-        echo "To load:   sudo insmod src/kernel/minimem.ko"
-        echo "To unload: sudo rmmod minimem"
-        echo "Stats:     cat /sys/kernel/minimem/*"
+    # Copy module back to source tree
+    cp "$KBUILD/src/kernel/minimem.ko" "$SCRIPT_DIR/src/kernel/minimem.ko"
+    echo ""
+    echo "Module built: src/kernel/minimem.ko"
+    modinfo "$SCRIPT_DIR/src/kernel/minimem.ko" | grep -E "vermagic|description"
+    echo "Algorithms compiled: same_page, BDI, WKdm, WKdm-64, block_class, LZ4, delta"
+    echo ""
+    echo "To load:   sudo insmod src/kernel/minimem.ko"
+    echo "To unload: sudo rmmod minimem"
+    echo "Stats:     cat /sys/kernel/minimem/*"
+}
+
+case "${1:-build}" in
+    clean)
+        rm -rf "$KBUILD"
+        echo "Cleaned build directory"
+        ;;
+    build|"")
+        do_build
+        ;;
+    custom)
+        do_build
         ;;
     tests)
         echo "Building VM test binaries..."
         mkdir -p "$SCRIPT_DIR/tests/kernel"
 
-        for src in test_stress_concurrent test_stress_pressure test_stress_unload test_transparent_e2e; do
+        for src in test_stress_concurrent test_stress_pressure test_stress_unload test_transparent_e2e test_cpu_overhead test_drain_restore test_perf_harness; do
             if [ -f "$SCRIPT_DIR/tests/kernel/${src}.c" ]; then
                 echo "  Building $src ..."
                 gcc -static -o "$SCRIPT_DIR/tests/kernel/$src" \
@@ -170,9 +208,10 @@ STUB
         done
         ;;
     *)
-        echo "Usage: $0 {build|clean|tests|load|unload|stats}"
+        echo "Usage: $0 {build|clean|custom|tests|load|unload|stats}"
         echo ""
-        echo "  build   - Build the kernel module (default)"
+        echo "  build   - Build the kernel module against host kernel (default)"
+        echo "  custom  - Build against custom kernel in .kernel/out/"
         echo "  clean   - Remove build directory"
         echo "  tests   - Build static VM test binaries"
         echo "  load    - Load the module with sudo"

@@ -184,6 +184,11 @@ unsigned long minimem_scanner_cycles_empty(void)
 	return atomic64_read(&scanner_cycles_empty);
 }
 
+unsigned long minimem_scanner_current_interval_ms(void)
+{
+	return atomic64_read(&scanner_current_interval_ms);
+}
+
 static void skip_list_add(unsigned long vaddr)
 {
 	unsigned long idx = (vaddr >> PAGE_SHIFT) & MINIMEM_SKIP_LIST_MASK;
@@ -513,9 +518,10 @@ static unsigned long minimem_scan_batch_vma(void)
 	bool is_sweep = (phase != 0);
 
 	if (is_sweep) {
-		if (!minimem_hook_fault_handler_ready()) {
-			pr_info_once("minimem: scanner sweep disabled — "
-				     "no fault handler available\n");
+		if (!minimem_hook_marker_ready()) {
+			pr_debug("minimem: scanner sweep skipped — "
+				  "PTE marker handling requires kernel patches "
+				  "(kprobe fallback cannot safely replace PTEs)\n");
 			atomic_set(&scanner_phase, 0);
 			return 0;
 		}

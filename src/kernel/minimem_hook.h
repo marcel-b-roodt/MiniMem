@@ -89,14 +89,14 @@ static inline pte_t minimem_mk_pte(struct page *page, pgprot_t pgprot)
 }
 
 /*
- * Make a PTE writable. Uses the resolved pte_mkwrite_novla symbol
- * on kernels that have it (6.x+), otherwise falls back.
+ * Make a PTE writable. Uses the resolved pte_mkwrite symbol
+ * which takes (pte_t, struct vm_area_struct *) on 6.x+ kernels.
  */
-pte_t minimem_pte_mkwrite_func(pte_t pte);
+pte_t minimem_pte_mkwrite_func(pte_t pte, struct vm_area_struct *vma);
 
-static inline pte_t minimem_pte_mkwrite(pte_t pte)
+static inline pte_t minimem_pte_mkwrite(pte_t pte, struct vm_area_struct *vma)
 {
-	return minimem_pte_mkwrite_func(pte);
+	return minimem_pte_mkwrite_func(pte, vma);
 }
 
 /*
@@ -107,5 +107,16 @@ static inline void minimem_pte_unmap_unlock(pte_t *ptep, spinlock_t *ptl)
 	pte_unmap(ptep);
 	spin_unlock(ptl);
 }
+
+/*
+ * Add a newly allocated anonymous page to the reverse mapping and LRU.
+ * These resolve folio_add_new_anon_rmap and folio_add_lru_vma via
+ * kallsyms at module load time.
+ */
+void minimem_folio_add_new_anon_rmap(struct folio *folio,
+				     struct vm_area_struct *vma,
+				     unsigned long address);
+void minimem_folio_add_lru_vma(struct folio *folio,
+			       struct vm_area_struct *vma);
 
 #endif /* MINIMEM_KERNEL_HOOK_H */

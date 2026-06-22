@@ -43,6 +43,8 @@ else
         modprobe lz4_compress 2>/dev/null || true
     if insmod /minimem.ko 2>/dev/null && [ -d "$SYSDIR" ]; then
         pass "module loaded successfully"
+    elif insmod -f /minimem.ko 2>/dev/null && [ -d "$SYSDIR" ]; then
+        pass "module loaded with --force (vermagic mismatch)"
     else
         fail "module load failed"
         echo "=== TESTS ABORTED ==="

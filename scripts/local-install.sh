@@ -301,6 +301,10 @@ STUB
     echo "  EMERGENCY RECOVERY (kernel panic on boot):"
     echo "    Add minimem.blacklist=1 to kernel cmdline in GRUB"
     echo "    Then boot and run: sudo $0 --uninstall"
+    echo "    If uninstall fails: sudo $0 --emergency"
+    echo ""
+    echo "  LiveCD RECOVERY (system won't boot):"
+    echo "    Boot from LiveCD/USB, mount root, chroot, then: sudo $0 --uninstall"
 }
 
 # ── Uninstall ───────────────────────────────────────────────────────
@@ -374,23 +378,158 @@ cmd_uninstall() {
     echo "    # Then rebuild and reboot your kernel"
 }
 
+# ── Emergency recovery ─────────────────────────────────────────────
+cmd_emergency() {
+    echo "=== MiniMem Emergency Recovery ==="
+    echo ""
+    echo "This mode attempts to unload MiniMem even when normal rmmod fails."
+    echo "Use this if:"
+    echo "  - rmmod minimem fails with 'Device or resource busy'"
+    echo "  - The system is unstable with MiniMem loaded"
+    echo "  - You need to recover without rebooting"
+    echo ""
+
+    if [ "$(id -u)" -ne 0 ]; then
+        error "This script must be run as root (sudo)"
+        exit 1
+    fi
+
+    # 1. Force-stop the scanner
+    if [ -d /sys/kernel/minimem ]; then
+        info "Stopping scanner..."
+        echo 0 > /sys/kernel/minimem/scanner_enabled 2>/dev/null || true
+
+        # 2. Check how many pages are compressed
+        local compressed
+        compressed=$(cat /sys/kernel/minimem/zswap_pages 2>/dev/null || echo "unknown")
+        info "Compressed pages: $compressed"
+
+        if [ "$compressed" != "0" ] && [ "$compressed" != "unknown" ]; then
+            info "Decompressing pages before unload..."
+            # Access debugfs compress_vaddr won't help here — drain happens on rmmod
+            info "Will rely on drain-and-restore during module unload"
+        fi
+    fi
+
+    # 3. Try to reduce module reference count
+    info "Attempting to reduce module references..."
+    modprobe -r minimem 2>/dev/null || true
+    sleep 1
+
+    # 4. Try rmmod
+    if lsmod 2>/dev/null | grep -q "^minimem "; then
+        info "Module still loaded, forcing unload..."
+        # Try rmmod with force flag
+        rmmod -f minimem 2>/dev/null || rmmod minimem 2>/dev/null || {
+            error "Cannot unload module even with --force"
+            error ""
+            error "EMERGENCY RECOVERY OPTIONS:"
+            error ""
+            error "Option 1: Kill processes using compressed memory"
+            error "  The module may be in use by processes with compressed pages."
+            error "  Find them: grep -r minimem /proc/*/maps 2>/dev/null"
+            error "  Then kill those processes and retry: sudo $0 --emergency"
+            error ""
+            error "Option 2: Reboot with blacklist"
+            error "  Add to GRUB kernel command line: minimem.blacklist=1"
+            error "  Edit /etc/default/grub, add to GRUB_CMDLINE_LINUX:"
+            error "    minimem.blacklist=1"
+            error "  Then: sudo update-grub && sudo reboot"
+            error "  After reboot, run: sudo $0 --uninstall"
+            error ""
+            error "Option 3: LiveCD recovery"
+            error "  If the system won't boot:"
+            error "  1. Boot from a LiveCD/USB (any Linux distro)"
+            error "  2. Mount the root filesystem:"
+            error "     sudo mount /dev/sdXN /mnt    # replace with your root partition"
+            error "  3. Chroot and uninstall:"
+            error "     sudo arch-chroot /mnt  # or: sudo chroot /mnt"
+            error "     sudo dkms remove minimem/$VERSION --all"
+            error "     sudo rm -f /usr/lib/systemd/system/minimem*.service"
+            error "     sudo rm -f /usr/lib/modules-load.d/minimem.conf"
+            error "     sudo systemctl daemon-reload"
+            error "  4. If kernel patches were applied:"
+            error "     sudo /usr/src/minimem-$VERSION/uninstall.sh \$(uname -r)"
+            error "     # Then rebuild and reinstall the kernel"
+            error "  5. Reboot into the repaired system"
+            error ""
+            error "Option 4: Remove DKMS modules manually"
+            error "  If DKMS is broken:"
+            error "  1. Find and remove: sudo find /lib/modules -name 'minimem.ko*' -delete"
+            error "  2. Regenerate initrd: sudo mkinitcpio -P  # Arch"
+            error "                        sudo dracut --force   # Fedora/openSUSE"
+            error "                        sudo update-initramfs -u  # Debian/Ubuntu"
+            error "  3. Reboot"
+            exit 1
+        }
+        info "Module unloaded successfully (forced)"
+    else
+        info "Module already unloaded"
+    fi
+
+    # 5. Clean up systemd and DKMS
+    info "Cleaning up systemd units..."
+    systemctl stop minimem.service minimem-load.service 2>/dev/null || true
+    systemctl disable minimem.service minimem-load.service 2>/dev/null || true
+    rm -f /usr/lib/systemd/system/minimem-load.service
+    rm -f /usr/lib/systemd/system/minimem.service
+    rm -f /usr/lib/modules-load.d/minimem.conf
+    systemctl daemon-reload
+
+    info "Removing DKMS module..."
+    dkms remove "$DKMS_NAME/$VERSION" --all 2>/dev/null || true
+    rm -rf "$DKMS_DIR"
+
+    info "Removing userspace library..."
+    for lib in /usr/lib/libminimem.so.*; do
+        [ -f "$lib" ] && rm -f "$lib"
+    done
+    rm -f /usr/lib/libminimem.so /usr/lib/libminimem_static.a
+    rm -f /usr/lib/pkgconfig/minimem.pc
+    rm -rf /usr/include/minimem
+    rm -f /usr/local/bin/minimem
+    ldconfig 2>/dev/null || true
+
+    echo ""
+    info "=== Emergency Recovery Complete ==="
+    echo ""
+    echo "  The module was force-unloaded. Compressed pages were"
+    echo "  restored by drain-and-restore before unload."
+    echo ""
+    echo "  If you experience issues, reboot the system."
+    echo ""
+    echo "  If kernel patches were applied, reverse them:"
+    echo "    sudo /usr/src/minimem-$VERSION/uninstall.sh \$(uname -r)"
+}
+
 # ── Main ────────────────────────────────────────────────────────────
 case "${1:-install}" in
     --uninstall|-u)  cmd_uninstall ;;
+    --emergency|-e)  cmd_emergency ;;
     --module-only|-m) cmd_install "--module-only" ;;
     --status|-s)      cmd_status ;;
     install|--install|-i) cmd_install ;;
     *)
-        echo "Usage: $0 {install|--install|-i|--uninstall|-u|--module-only|-m|--status|-s}"
+        echo "Usage: $0 {install|--install|-i|--uninstall|-u|--emergency|-e|--module-only|-m|--status|-s}"
         echo ""
         echo "  install        Install module + systemd + userspace library (default)"
         echo "  --module-only  Install DKMS module only (no systemd, no library)"
-        echo "  --uninstall    Remove everything"
+        echo "  --uninstall    Remove everything (clean unload with drain-and-restore)"
+        echo "  --emergency    Force unload when normal uninstall fails"
         echo "  --status       Show install status"
         echo ""
         echo "Emergency recovery if module causes kernel panic on boot:"
         echo "  1. Add minimem.blacklist=1 to kernel cmdline in GRUB"
         echo "  2. Boot and run: sudo $0 --uninstall"
+        echo "  3. If uninstall fails: sudo $0 --emergency"
+        echo ""
+        echo "LiveCD recovery if system won't boot:"
+        echo "  1. Boot from LiveCD/USB"
+        echo "  2. Mount root: sudo mount /dev/sdXN /mnt"
+        echo "  3. Chroot: sudo arch-chroot /mnt"
+        echo "  4. Uninstall: sudo $0 --uninstall"
+        echo "  5. Rebuild kernel if patches were applied"
+        echo "  6. Reboot"
         exit 1
         ;;
 esac

@@ -37,5 +37,6 @@ unsigned long minimem_scanner_skip_page_mlocked(void);
 unsigned long minimem_scanner_skip_incompressible(void);
 unsigned long minimem_scanner_cycles_total(void);
 unsigned long minimem_scanner_cycles_empty(void);
+unsigned long minimem_scanner_current_interval_ms(void);
 
 #endif /* MINIMEM_KERNEL_SCANNER_H */

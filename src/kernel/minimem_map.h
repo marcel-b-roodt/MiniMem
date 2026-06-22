@@ -12,6 +12,7 @@
 #include <linux/types.h>
 #include <linux/xarray.h>
 #include <linux/spinlock.h>
+#include <linux/rwsem.h>
 #include "minimem_compress.h"
 
 /*
@@ -31,6 +32,7 @@ struct minimem_map_entry {
 struct minimem_map {
 	struct xarray entries;
 	spinlock_t lock;
+	struct rw_semaphore rwsem;
 	atomic64_t count;
 };
 
@@ -54,11 +56,9 @@ int minimem_map_store(struct minimem_map *map, unsigned long vaddr,
 int minimem_map_lookup(struct minimem_map *map, unsigned long vaddr,
 		       struct minimem_map_entry *out);
 
-/*
- * Remove a compressed page from the map.
- * Returns 0 on success, -ENOENT if not found.
- * Caller is responsible for freeing the zsmalloc handle.
- */
+void minimem_map_read_lock(struct minimem_map *map);
+void minimem_map_read_unlock(struct minimem_map *map);
+
 int minimem_map_remove(struct minimem_map *map, unsigned long vaddr);
 
 /*

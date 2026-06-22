@@ -17,16 +17,17 @@ the page fault handler.
 
 Signed-off-by: MiniMem Project <minimem@noreply.github.com>
 ---
- include/linux/minimem.h | 28 ++++++++++++++++++++++++++++
+ include/linux/minimem.h | 34 ++++++++++++++++++++++++++++++++++
+ include/linux/swapops.h |  3 ++-
  mm/memory.c             | 14 ++++++++++++++
- 2 files changed, 42 insertions(+)
+ 3 files changed, 50 insertions(+), 1 deletion(-)
 
 diff --git a/include/linux/minimem.h b/include/linux/minimem.h
 new file mode 100644
-index 000000000000..123456789abc
+index 000000000000..791a8fa70d4d
 --- /dev/null
 +++ b/include/linux/minimem.h
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,34 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
 + * minimem.h — Kernel interface for MiniMem transparent memory compression
@@ -52,25 +53,52 @@ index 000000000000..123456789abc
 + * or a VM_FAULT_* error code on failure.
 + */
 +extern vm_fault_t (*minimem_fault_handler)(struct vm_fault *vmf);
++
++int minimem_register_fault_handler(vm_fault_t (*handler)(struct vm_fault *vmf));
++void minimem_unregister_fault_handler(void);
 +#else
 +#define minimem_fault_handler NULL
++static inline int minimem_register_fault_handler(vm_fault_t (*handler)(struct vm_fault *vmf)) { return 0; }
++static inline void minimem_unregister_fault_handler(void) {}
 +#endif
 +
 +#endif /* _LINUX_MINIMEM_H */
+diff --git a/include/linux/swapops.h b/include/linux/swapops.h
+index 64ea151a7d23..6f992d69b7f0 100644
+--- a/include/linux/swapops.h
++++ b/include/linux/swapops.h
+@@ -421,7 +421,8 @@ typedef unsigned long pte_marker;
+  * PROT_NONE, rather than if they were a memory hole or equivalent.
+  */
+ #define  PTE_MARKER_GUARD			BIT(2)
+-#define  PTE_MARKER_MASK			(BIT(3) - 1)
++#define  PTE_MARKER_MINIMEM			BIT(3)
++#define  PTE_MARKER_MASK			(BIT(4) - 1)
+ 
+ static inline swp_entry_t make_pte_marker_entry(pte_marker marker)
+ {
 diff --git a/mm/memory.c b/mm/memory.c
-index abcdef123456..789abcdef123 100644
+index b59ae7ce42d4..4d173a0305f1 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
-@@ -4585,6 +4585,7 @@ static vm_fault_t handle_pte_marker(struct vm_fault *vmf)
+@@ -61,6 +61,7 @@
+ #include <linux/memcontrol.h>
+ #include <linux/mmu_notifier.h>
+ #include <linux/swapops.h>
++#include <linux/minimem.h>
+ #include <linux/elf.h>
+ #include <linux/gfp.h>
+ #include <linux/migrate.h>
+@@ -4384,6 +4385,7 @@ static vm_fault_t handle_pte_marker(struct vm_fault *vmf)
  {
- 	const softleaf_t entry = softleaf_from_pte(vmf->orig_pte);
- 	const pte_marker marker = softleaf_to_marker(entry);
+ 	swp_entry_t entry = pte_to_swp_entry(vmf->orig_pte);
+ 	unsigned long marker = pte_marker_get(entry);
 +	vm_fault_t ret;
  
  	/*
  	 * PTE markers should never be empty.  If anything weird happened,
-@@ -4601,6 +4602,19 @@ static vm_fault_t handle_pte_marker(struct vm_fault *vmf)
- 	if (softleaf_is_uffd_wp_marker(entry))
+@@ -4403,6 +4405,18 @@ static vm_fault_t handle_pte_marker(struct vm_fault *vmf)
+ 	if (pte_marker_entry_uffd_wp(entry))
  		return pte_marker_handle_uffd_wp(vmf);
  
 +#ifdef CONFIG_MINIMEM

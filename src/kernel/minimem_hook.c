@@ -46,14 +46,17 @@
  *   - pte_offset_map_lock → calls __pte_offset_map_lock (real symbol)
  *   - set_pte_at → macro expanding to set_ptes() (may be real symbol)
  *   - mk_pte → inline (use our own implementation)
- *   - pte_mkwrite → macro expanding to pte_mkwrite_novma() (real symbol)
+ *   - pte_mkwrite → takes (pte_t, struct vm_area_struct *) on 6.x+
  *   - pte_unmap_unlock → macro (use our own implementation)
  *
  * We resolve what we can and implement the rest inline.
  */
 static pte_t *(*p__pte_offset_map_lock)(struct mm_struct *, pmd_t *,
 					 unsigned long, spinlock_t **);
-static pte_t (*p_pte_mkwrite_novma)(pte_t);
+static pte_t (*p_pte_mkwrite_vma)(pte_t, struct vm_area_struct *);
+static void (*p_folio_add_new_anon_rmap)(struct folio *, struct vm_area_struct *,
+					unsigned long, rmap_t);
+static void (*p_folio_add_lru_vma)(struct folio *, struct vm_area_struct *);
 
 /* mk_pte and pte_unmap_unlock are inline — we implement them locally */
 
@@ -136,16 +139,25 @@ static int resolve_kernel_symbols(void)
 	 * inline (just WRITE_ONCE). Since we hold the PTL, we can
 	 * write the PTE directly. No symbol resolution needed.
 	 *
-	 * pte_mkwrite is a macro expanding to pte_mkwrite_novma.
+	 * pte_mkwrite takes two arguments on newer kernels:
+	 * pte_mkwrite(pte_t pte, struct vm_area_struct *vma).
+	 * pte_mkwrite_novma is static inline and not exported.
 	 */
-	p_pte_mkwrite_novma = try_resolve_symbol("pte_mkwrite_novma");
-	if (!p_pte_mkwrite_novma) {
-		p_pte_mkwrite_novma = try_resolve_symbol("pte_mkwrite");
-		if (!p_pte_mkwrite_novma) {
-			pr_warn("minimem: could not resolve pte_mkwrite_novma or pte_mkwrite\n");
-			return -ENOENT;
-		}
+	p_pte_mkwrite_vma = try_resolve_symbol("pte_mkwrite");
+	if (!p_pte_mkwrite_vma) {
+		pr_warn("minimem: could not resolve pte_mkwrite\n");
+		return -ENOENT;
 	}
+
+	p_folio_add_new_anon_rmap = try_resolve_symbol("folio_add_new_anon_rmap");
+	if (!p_folio_add_new_anon_rmap) {
+		pr_warn("minimem: could not resolve folio_add_new_anon_rmap\n");
+		return -ENOENT;
+	}
+
+	p_folio_add_lru_vma = try_resolve_symbol("folio_add_lru_vma");
+	if (!p_folio_add_lru_vma)
+		pr_warn("minimem: could not resolve folio_add_lru_vma (pages may not be on LRU)\n");
 
 	/*
 	 * mk_pte is inline — we implement it using pfn_to_page and
@@ -197,10 +209,25 @@ void minimem_set_pte_at(struct mm_struct *mm,
 	WRITE_ONCE(*ptep, pte);
 }
 
-pte_t minimem_pte_mkwrite_func(pte_t pte)
+void minimem_folio_add_new_anon_rmap(struct folio *folio,
+				     struct vm_area_struct *vma,
+				     unsigned long address)
 {
-	if (p_pte_mkwrite_novma)
-		return p_pte_mkwrite_novma(pte);
+	if (p_folio_add_new_anon_rmap)
+		p_folio_add_new_anon_rmap(folio, vma, address, RMAP_EXCLUSIVE);
+}
+
+void minimem_folio_add_lru_vma(struct folio *folio,
+			       struct vm_area_struct *vma)
+{
+	if (p_folio_add_lru_vma)
+		p_folio_add_lru_vma(folio, vma);
+}
+
+pte_t minimem_pte_mkwrite_func(pte_t pte, struct vm_area_struct *vma)
+{
+	if (p_pte_mkwrite_vma)
+		return p_pte_mkwrite_vma(pte, vma);
 	return pte;
 }
 
@@ -212,7 +239,7 @@ static vm_fault_t minimem_vm_fault_handler(struct vm_fault *vmf)
 	struct minimem_map_entry map_entry;
 	struct page *new_page;
 	struct minimem_decompress_result dres;
-	void *src_buf, *dst_addr;
+	void *src_buf, *zs_addr, *dst_addr;
 	pte_t new_pte;
 	struct vm_area_struct *vma = vmf->vma;
 	struct mm_struct *mm = vma->vm_mm;
@@ -226,8 +253,11 @@ static vm_fault_t minimem_vm_fault_handler(struct vm_fault *vmf)
 
 	orig_pte = vmf->orig_pte;
 
-	if (!is_minimem_pte(orig_pte))
+	if (!is_minimem_pte(orig_pte)) {
+		pr_warn("minimem: vm_fault_handler: not a minimem pte (0x%llx)\n",
+			(unsigned long long)pte_val(orig_pte));
 		return VM_FAULT_SIGBUS;
+	}
 
 	start = ktime_get_ns();
 	entry = minimem_pte_to_swp_entry(orig_pte);
@@ -236,35 +266,48 @@ static vm_fault_t minimem_vm_fault_handler(struct vm_fault *vmf)
 
 	ret = minimem_map_lookup(minimem_zswap_map(), vaddr, &map_entry);
 	if (ret) {
+		pr_warn("minimem: vm_fault_handler: map_lookup FAILED for vaddr=0x%lx ret=%d\n",
+			vaddr, ret);
 		atomic64_inc(&hook_faults_missed);
 		return VM_FAULT_SIGBUS;
 	}
 
 	new_page = alloc_page_vma(GFP_HIGHUSER_MOVABLE, vma, vmf->address);
 	if (!new_page) {
+		pr_warn("minimem: vm_fault_handler: alloc_page_vma FAILED\n");
 		atomic64_inc(&hook_faults_missed);
 		return VM_FAULT_OOM;
 	}
 
 	src_buf = kmalloc(map_entry.compressed_len, GFP_ATOMIC);
 	if (!src_buf) {
+		pr_warn("minimem: vm_fault_handler: kmalloc FAILED (len=%zu)\n",
+			map_entry.compressed_len);
 		__free_page(new_page);
 		atomic64_inc(&hook_faults_missed);
 		return VM_FAULT_OOM;
 	}
 
-	zs_obj_read_begin(minimem_zswap_pool(), map_entry.zs_handle, src_buf);
+	zs_addr = zs_obj_read_begin(minimem_zswap_pool(), map_entry.zs_handle, src_buf);
+	if (!zs_addr) {
+		kfree(src_buf);
+		__free_page(new_page);
+		atomic64_inc(&hook_faults_missed);
+		return VM_FAULT_SIGBUS;
+	}
 
 	dst_addr = kmap_local_page(new_page);
-	ret = minimem_decompress_page(src_buf, map_entry.compressed_len,
+	ret = minimem_decompress_page(zs_addr, map_entry.compressed_len,
 				      map_entry.algo_id, dst_addr,
 				      MINIMEM_PAGE_SIZE, &dres);
 	kunmap_local(dst_addr);
 
-	zs_obj_read_end(minimem_zswap_pool(), map_entry.zs_handle, src_buf);
+	zs_obj_read_end(minimem_zswap_pool(), map_entry.zs_handle, zs_addr);
 	kfree(src_buf);
 
 	if (ret != MINIMEM_OK) {
+		pr_warn("minimem: decompress failed ret=%d algo=%d clen=%zu\n",
+			ret, map_entry.algo_id, map_entry.compressed_len);
 		__free_page(new_page);
 		atomic64_inc(&hook_faults_missed);
 		return VM_FAULT_SIGBUS;
@@ -275,7 +318,7 @@ static vm_fault_t minimem_vm_fault_handler(struct vm_fault *vmf)
 
 	new_pte = minimem_mk_pte(new_page, vma->vm_page_prot);
 	if (vma->vm_flags & VM_WRITE)
-		new_pte = minimem_pte_mkwrite(new_pte);
+		new_pte = minimem_pte_mkwrite(new_pte, vma);
 	new_pte = pte_mkyoung(new_pte);
 
 	ptep = minimem_pte_offset_map_lock(mm, vmf->pmd, vmf->address, &ptl);
@@ -283,8 +326,19 @@ static vm_fault_t minimem_vm_fault_handler(struct vm_fault *vmf)
 		if (pte_same(*ptep, orig_pte)) {
 			minimem_set_pte_at(mm, vmf->address, ptep, new_pte);
 			percpu_counter_add(&mm->rss_stat[MM_ANONPAGES], 1);
+			minimem_folio_add_new_anon_rmap(page_folio(new_page), vma,
+						  vmf->address);
+			minimem_folio_add_lru_vma(page_folio(new_page), vma);
+		} else {
+			pr_warn("minimem: vm_fault_handler: PTE changed! old=0x%llx cur=0x%llx\n",
+				(unsigned long long)pte_val(orig_pte),
+				(unsigned long long)pte_val(*ptep));
+			__free_page(new_page);
 		}
 		minimem_pte_unmap_unlock(ptep, ptl);
+	} else {
+		pr_warn("minimem: vm_fault_handler: ptep is NULL\n");
+		__free_page(new_page);
 	}
 
 	atomic64_inc(&hook_faults_handled);
@@ -305,7 +359,7 @@ static int minimem_handle_swap_fault(struct vm_fault *vmf)
 	struct minimem_map_entry map_entry;
 	struct page *new_page;
 	struct minimem_decompress_result dres;
-	void *src_buf, *dst_addr;
+	void *src_buf, *zs_addr, *dst_addr;
 	pte_t new_pte, orig_pte;
 	struct vm_area_struct *vma = vmf->vma;
 	struct mm_struct *mm = vma->vm_mm;
@@ -346,15 +400,21 @@ static int minimem_handle_swap_fault(struct vm_fault *vmf)
 		return 0;
 	}
 
-	zs_obj_read_begin(minimem_zswap_pool(), map_entry.zs_handle, src_buf);
+	zs_addr = zs_obj_read_begin(minimem_zswap_pool(), map_entry.zs_handle, src_buf);
+	if (!zs_addr) {
+		kfree(src_buf);
+		__free_page(new_page);
+		atomic64_inc(&hook_faults_missed);
+		return 0;
+	}
 
 	dst_addr = kmap_local_page(new_page);
-	ret = minimem_decompress_page(src_buf, map_entry.compressed_len,
+	ret = minimem_decompress_page(zs_addr, map_entry.compressed_len,
 				      map_entry.algo_id, dst_addr,
 				      MINIMEM_PAGE_SIZE, &dres);
 	kunmap_local(dst_addr);
 
-	zs_obj_read_end(minimem_zswap_pool(), map_entry.zs_handle, src_buf);
+	zs_obj_read_end(minimem_zswap_pool(), map_entry.zs_handle, zs_addr);
 	kfree(src_buf);
 
 	if (ret != MINIMEM_OK) {
@@ -368,7 +428,7 @@ static int minimem_handle_swap_fault(struct vm_fault *vmf)
 
 	new_pte = minimem_mk_pte(new_page, vma->vm_page_prot);
 	if (vma->vm_flags & VM_WRITE)
-		new_pte = minimem_pte_mkwrite(new_pte);
+		new_pte = minimem_pte_mkwrite(new_pte, vma);
 	new_pte = pte_mkyoung(new_pte);
 
 	ptep = minimem_pte_offset_map_lock(mm, vmf->pmd, vmf->address, &ptl);
@@ -376,8 +436,15 @@ static int minimem_handle_swap_fault(struct vm_fault *vmf)
 		if (pte_same(*ptep, orig_pte)) {
 			minimem_set_pte_at(mm, vmf->address, ptep, new_pte);
 			percpu_counter_add(&mm->rss_stat[MM_ANONPAGES], 1);
+			minimem_folio_add_new_anon_rmap(page_folio(new_page), vma,
+						  vmf->address);
+			minimem_folio_add_lru_vma(page_folio(new_page), vma);
+		} else {
+			__free_page(new_page);
 		}
 		minimem_pte_unmap_unlock(ptep, ptl);
+	} else {
+		__free_page(new_page);
 	}
 
 	atomic64_inc(&hook_faults_handled);
@@ -395,6 +462,7 @@ static int minimem_kprobe_pre(struct kprobe *p, struct pt_regs *regs)
 {
 	struct vm_fault *vmf;
 	pte_t orig_pte;
+	int handled;
 
 	if (!symbols_resolved)
 		return 0;
@@ -408,7 +476,30 @@ static int minimem_kprobe_pre(struct kprobe *p, struct pt_regs *regs)
 	if (!is_minimem_pte(orig_pte))
 		return 0;
 
-	minimem_handle_swap_fault(vmf);
+	handled = minimem_handle_swap_fault(vmf);
+
+	/*
+	 * After successfully decompressing and installing a present PTE,
+	 * we do NOT modify vmf->orig_pte. Here's why:
+	 *
+	 * do_swap_page() calls pte_unmap_same() at the top, which checks
+	 * whether the PTE in the page table still matches vmf->orig_pte.
+	 * Since we've replaced the MiniMem marker with a present PTE,
+	 * pte_same() will return false, causing pte_unmap_same() to return 0.
+	 * This makes do_swap_page() bail out via "goto out" with ret=0,
+	 * which maps to VM_FAULT_NOPAGE. The page fault handler then
+	 * re-walks the page table, finds the PTE present, and completes
+	 * the fault normally.
+	 *
+	 * This is the correct behavior: we've already resolved the fault
+	 * by installing the present PTE, so do_swap_page() should not
+	 * attempt any further processing of the MiniMem PTE marker.
+	 * If we left vmf->orig_pte as-is and pte_unmap_same() happened
+	 * to pass (e.g., due to timing), do_swap_page() would then
+	 * process the marker via handle_pte_marker() which would return
+	 * VM_FAULT_SIGBUS for our unknown MiniMem marker, killing the
+	 * process with SIGBUS.
+	 */
 
 	return 0;
 }
@@ -436,8 +527,18 @@ int minimem_hook_init(void)
 				ret);
 			kernel_patches_detected = false;
 		} else {
+			void (**zap_cb_ptr)(struct vm_area_struct *,
+					   unsigned long, swp_entry_t);
+
 			pr_info("minimem: registered fault handler with kernel "
 				"(handle_pte_marker path)\n");
+
+			/* Register the zap callback for process exit/munmap */
+			zap_cb_ptr = try_resolve_symbol("minimem_zap_cb");
+			if (zap_cb_ptr) {
+				*zap_cb_ptr = minimem_zswap_zap_cb;
+				pr_info("minimem: registered zap callback with kernel\n");
+			}
 		}
 	}
 
@@ -463,9 +564,15 @@ int minimem_hook_init(void)
 
 void minimem_hook_exit(void)
 {
+	void (**zap_cb_ptr)(struct vm_area_struct *, unsigned long, swp_entry_t);
+
 	if (kernel_patches_detected && p_minimem_unregister_fault_handler) {
 		p_minimem_unregister_fault_handler();
 		pr_info("minimem: unregistered fault handler from kernel\n");
+
+		zap_cb_ptr = try_resolve_symbol("minimem_zap_cb");
+		if (zap_cb_ptr)
+			*zap_cb_ptr = NULL;
 	}
 
 	if (hook_registered) {
@@ -502,6 +609,14 @@ bool minimem_hook_marker_ready(void)
 
 bool minimem_hook_fault_handler_ready(void)
 {
+	/*
+	 * Returns true if either kernel patches or kprobe fallback is
+	 * available. Used by the scanner to decide whether to run at all.
+	 * Note: kprobe fallback alone is NOT sufficient for PTE replacement
+	 * (sweep pass), because on x86-64 pte_unmap_same() does not detect
+	 * PTE changes made by our handler. Use minimem_hook_marker_ready()
+	 * for sweep pass gating.
+	 */
 	return kernel_patches_detected || hook_registered;
 }
 
@@ -682,9 +797,6 @@ int minimem_compress_and_replace_pte(struct mm_struct *mm,
 	put_page(page);
 
 	atomic64_inc(&hook_faults_handled);
-
-	pr_debug("minimem: PTE replaced for vaddr=0x%lx, algo=%d compressed=%zu\n",
-		 vaddr, res.algo_id, res.compressed_size);
 
 	return 0;
 }
