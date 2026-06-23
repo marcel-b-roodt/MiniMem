@@ -1,6 +1,6 @@
 pkgbase = minimem
 	pkgdesc = Transparent lossless memory compression library
-	pkgver = 0.8.0
+	pkgver = 0.9.0
 	pkgrel = 1
 	url = https://github.com/marcel-b-roodt/MiniMem
 	arch = x86_64
@@ -10,7 +10,7 @@ pkgbase = minimem
 	makedepends = gcc
 	depends = libzstd
 	optdepends = criterion: build tests and benchmarks
-	source = minimem-0.8.0.tar.gz::https://github.com/marcel-b-roodt/MiniMem/archive/refs/tags/v0.8.0.tar.gz
+	source = minimem-0.9.0.tar.gz::https://github.com/marcel-b-roodt/MiniMem/archive/refs/tags/v0.9.0.tar.gz
 	sha256sums = SKIP
 
 pkgname = minimem

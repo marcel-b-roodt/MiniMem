@@ -1,3 +1,9 @@
+minimem (0.9.0-1) unstable; urgency=low
+
+  * Bump version to 0.9.0
+
+ -- Marcel Broodt <minimem@noreply.github.com>  Tue, 23 Jun 2026 00:00:00 +0000
+
 minimem (0.8.0-1) unstable; urgency=low
 
   * Per-process compression statistics (opt-in, debugfs + sysfs)

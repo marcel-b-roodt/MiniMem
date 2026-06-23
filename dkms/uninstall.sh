@@ -10,7 +10,7 @@ set -e
 
 KVER="${1:-$(uname -r)}"
 KERNELDIR="/usr/lib/modules/$KVER/build"
-PATCHDIR="/usr/src/minimem-0.8.0/patches"
+PATCHDIR="/usr/src/minimem-0.9.0/patches"
 
 echo "minimem-dkms: pre-remove for kernel $KVER"
 

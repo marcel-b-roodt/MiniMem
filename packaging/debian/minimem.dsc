@@ -1,13 +1,13 @@
 Format: 3.0 (quilt)
 Source: minimem
-Version: 0.8.0-1
+Version: 0.9.0-1
 Maintainer: Marcel Broodt <minimem@noreply.github.com>
 Section: utils
 Priority: optional
 Build-Depends: debhelper-compat (= 13), meson, pkg-config, gcc, g++, libzstd-dev, dkms
 Standards-Version: 4.7.0
 Homepage: https://github.com/marcel-b-roodt/MiniMem
-DEBTRANSFORM-TAR: minimem-0.8.0.tar.gz
+DEBTRANSFORM-TAR: minimem-0.9.0.tar.gz
 
 Package: libminimem0
 Architecture: any

@@ -21,7 +21,7 @@
 
 set -e
 
-VERSION="0.8.0"
+VERSION="0.9.0"
 DKMS_NAME="minimem"
 DKMS_DIR="/usr/src/${DKMS_NAME}-${VERSION}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

@@ -1,6 +1,6 @@
 # Maintainer: Marcel Broodt <minimem@noreply.github.com>
 pkgname=minimem-dkms
-pkgver=0.8.0
+pkgver=0.9.0
 pkgrel=1
 pkgdesc="MiniMem transparent memory compression kernel module (DKMS)"
 arch=('x86_64' 'aarch64')

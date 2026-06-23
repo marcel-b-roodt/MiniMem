@@ -46,9 +46,9 @@
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("MiniMem Project");
 MODULE_DESCRIPTION("Transparent in-memory page compression");
-MODULE_VERSION("0.8.0");
+MODULE_VERSION("0.9.0");
 
-#define MINIMEM_VERSION_STR "0.8.0"
+#define MINIMEM_VERSION_STR "0.9.0"
 
 static struct minimem_stats {
 	atomic64_t pages_compressed;

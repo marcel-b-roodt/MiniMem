@@ -1,5 +1,5 @@
 Name:           minimem
-Version:        0.8.0
+Version:        0.9.0
 Release:        1%{?dist}
 Summary:        Transparent lossless memory compression library
 
@@ -230,8 +230,9 @@ dkms remove minimem/%{version} --all 2>/dev/null || true
 %{_unitdir}/minimem.service
 %{_modulesloaddir}/minimem.conf
 
-%changelog
-* Sat Jun 20 2026 Marcel Broodt <minimem@noreply.github.com> - 0.8.0-1
+* Tue Jun 23 2026 Marcel Broodt <minimem@noreply.github.com> - 0.9.0-1
+- Bump version to 0.9.0
+
 - Add per-process compression statistics
 - Add local install/uninstall script
 - Add AUR minimem-dkms-systemd package

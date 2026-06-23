@@ -1,6 +1,6 @@
 pkgbase = minimem-dkms-systemd
 	pkgdesc = Systemd units for MiniMem kernel module auto-load and auto-enable
-	pkgver = 0.8.0
+	pkgver = 0.9.0
 	pkgrel = 1
 	url = https://github.com/marcel-b-roodt/MiniMem
 	arch = any
@@ -9,7 +9,7 @@ pkgbase = minimem-dkms-systemd
 	depends = systemd
 	optdepends = linux-headers: build module for current kernel
 	install = minimem-dkms-systemd.install
-	source = minimem-dkms-systemd-0.8.0.tar.gz::https://github.com/marcel-b-roodt/MiniMem/archive/refs/tags/v0.8.0.tar.gz
+	source = minimem-dkms-systemd-0.9.0.tar.gz::https://github.com/marcel-b-roodt/MiniMem/archive/refs/tags/v0.9.0.tar.gz
 	sha256sums = SKIP
 
 pkgname = minimem-dkms-systemd

@@ -1,5 +1,5 @@
 project('minimem', 'c', 'cpp',
-    version : '0.8.0',
+    version : '0.9.0',
     default_options : [
         'c_std=c11',
         'cpp_std=c++14',
@@ -13,7 +13,7 @@ cc = meson.get_compiler('c')
 zstd_dep = dependency('libzstd', required : true)
 
 minimem_version_major = '0'
-minimem_version_minor = '8'
+minimem_version_minor = '9'
 minimem_version_patch = '0'
 minimem_version = '@0@.@1@.@2@'.format(minimem_version_major, minimem_version_minor, minimem_version_patch)
 
