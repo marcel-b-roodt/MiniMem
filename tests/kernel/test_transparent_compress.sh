@@ -43,9 +43,9 @@ if [ ! -w "$DEBUGDIR/compress_vaddr" ]; then
 fi
 
 # Check if hook symbols were resolved
-HOOK_MSG=$(dmesg | grep "minimem:" | grep "kprobe registered")
+HOOK_MSG=$(dmesg | grep "minimem:" | grep -E "kretprobe registered|kprobe registered")
 if [ -z "$HOOK_MSG" ]; then
-    skip "kprobe hook not registered — transparent faults won't work"
+    skip "kretprobe/kprobe hook not registered — transparent faults won't work"
     exit 0
 fi
 

@@ -332,7 +332,10 @@ long minimem_zswap_drain_and_restore(void)
 			continue;
 		}
 
-		mmap_read_lock(mm);
+		if (!mmap_read_trylock(mm)) {
+			mmput(mm);
+			continue;
+		}
 
 		VMA_ITERATOR(vmi, mm, 0);
 		for_each_vma(vmi, vma) {

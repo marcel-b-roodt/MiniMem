@@ -38,6 +38,7 @@
 #include "minimem_pte.h"
 #include "minimem_scanner.h"
 #include "minimem_parallel.h"
+#include "minimem_mmu.h"
 
 /*
  * Resolved kernel symbols.
@@ -102,13 +103,22 @@ static void *try_resolve_symbol(const char *name)
 	return addr;
 }
 
-static struct kprobe minimem_kp;
+static struct kretprobe minimem_kretprobe;
 static atomic64_t hook_faults_handled;
 static atomic64_t hook_faults_missed;
 static atomic64_t hook_faults_ns;
 static bool hook_registered;
 static bool symbols_resolved;
 static bool kernel_patches_detected;
+
+/*
+ * Per-instance data for the kretprobe: set by the entry handler when
+ * we successfully decompress a MiniMem page, checked by the return
+ * handler to override the return value.
+ */
+struct minimem_kretprobe_data {
+	bool handled;
+};
 
 typedef int (*minimem_register_fn)(vm_fault_t (*handler)(struct vm_fault *));
 typedef void (*minimem_unregister_fn)(void);
@@ -458,11 +468,31 @@ static int minimem_handle_swap_fault(struct vm_fault *vmf)
 	return 1;
 }
 
-static int minimem_kprobe_pre(struct kprobe *p, struct pt_regs *regs)
+/*
+ * Kretprobe entry handler for do_swap_page().
+ *
+ * On stock kernels (without CONFIG_MINIMEM patches), the kprobe approach
+ * has a fundamental limitation on x86-64: pte_unmap_same() is a no-op
+ * because sizeof(pte_t) == sizeof(unsigned long). This means that after
+ * our handler installs a present PTE, do_swap_page() continues processing
+ * the original MiniMem marker PTE via handle_pte_marker(), which returns
+ * VM_FAULT_SIGBUS and kills the process.
+ *
+ * The kretprobe return handler (minimem_kretprobe_return) fixes this by
+ * changing the return value from VM_FAULT_SIGBUS to VM_FAULT_NOPAGE
+ * when our entry handler has successfully resolved the fault. This causes
+ * the page fault handler to re-walk the page table, find the present PTE
+ * we installed, and complete the fault normally.
+ */
+static int minimem_kretprobe_entry(struct kretprobe_instance *ri,
+				   struct pt_regs *regs)
 {
+	struct minimem_kretprobe_data *data;
 	struct vm_fault *vmf;
 	pte_t orig_pte;
-	int handled;
+
+	data = (struct minimem_kretprobe_data *)ri->data;
+	data->handled = false;
 
 	if (!symbols_resolved)
 		return 0;
@@ -476,30 +506,41 @@ static int minimem_kprobe_pre(struct kprobe *p, struct pt_regs *regs)
 	if (!is_minimem_pte(orig_pte))
 		return 0;
 
-	handled = minimem_handle_swap_fault(vmf);
+	if (minimem_handle_swap_fault(vmf) > 0)
+		data->handled = true;
 
-	/*
-	 * After successfully decompressing and installing a present PTE,
-	 * we do NOT modify vmf->orig_pte. Here's why:
-	 *
-	 * do_swap_page() calls pte_unmap_same() at the top, which checks
-	 * whether the PTE in the page table still matches vmf->orig_pte.
-	 * Since we've replaced the MiniMem marker with a present PTE,
-	 * pte_same() will return false, causing pte_unmap_same() to return 0.
-	 * This makes do_swap_page() bail out via "goto out" with ret=0,
-	 * which maps to VM_FAULT_NOPAGE. The page fault handler then
-	 * re-walks the page table, finds the PTE present, and completes
-	 * the fault normally.
-	 *
-	 * This is the correct behavior: we've already resolved the fault
-	 * by installing the present PTE, so do_swap_page() should not
-	 * attempt any further processing of the MiniMem PTE marker.
-	 * If we left vmf->orig_pte as-is and pte_unmap_same() happened
-	 * to pass (e.g., due to timing), do_swap_page() would then
-	 * process the marker via handle_pte_marker() which would return
-	 * VM_FAULT_SIGBUS for our unknown MiniMem marker, killing the
-	 * process with SIGBUS.
-	 */
+	return 0;
+}
+
+/*
+ * Kretprobe return handler for do_swap_page().
+ *
+ * If our entry handler successfully decompressed a MiniMem page, we
+ * override the return value: VM_FAULT_SIGBUS → VM_FAULT_NOPAGE.
+ *
+ * On x86-64, pte_unmap_same() is a no-op (sizeof(pte_t) ==
+ * sizeof(unsigned long)), so do_swap_page() does NOT bail out after
+ * our entry handler installs the present PTE. Instead it continues
+ * to handle_pte_marker(), which returns VM_FAULT_SIGBUS for unknown
+ * PTE marker types. We change that to VM_FAULT_NOPAGE so the page
+ * fault handler re-walks the page table and finds our installed PTE.
+ */
+static int minimem_kretprobe_return(struct kretprobe_instance *ri,
+				    struct pt_regs *regs)
+{
+	struct minimem_kretprobe_data *data;
+	vm_fault_t ret;
+
+	data = (struct minimem_kretprobe_data *)ri->data;
+	if (!data->handled)
+		return 0;
+
+	ret = (vm_fault_t)regs_return_value(regs);
+	if (ret == VM_FAULT_SIGBUS) {
+		regs_set_return_value(regs, VM_FAULT_NOPAGE);
+		pr_debug("minimem: kretprobe: changed VM_FAULT_SIGBUS "
+			 "to VM_FAULT_NOPAGE\n");
+	}
 
 	return 0;
 }
@@ -543,19 +584,22 @@ int minimem_hook_init(void)
 	}
 
 	if (!kernel_patches_detected) {
-		minimem_kp.symbol_name = "do_swap_page";
-		minimem_kp.pre_handler = minimem_kprobe_pre;
+		minimem_kretprobe.kp.symbol_name = "do_swap_page";
+		minimem_kretprobe.entry_handler = minimem_kretprobe_entry;
+		minimem_kretprobe.handler = minimem_kretprobe_return;
+		minimem_kretprobe.data_size = sizeof(struct minimem_kretprobe_data);
+		minimem_kretprobe.maxactive = 0;
 
-		ret = register_kprobe(&minimem_kp);
+		ret = register_kretprobe(&minimem_kretprobe);
 		if (ret) {
-			pr_warn("minimem: failed to register kprobe on do_swap_page: %d\n",
+			pr_warn("minimem: failed to register kretprobe on do_swap_page: %d\n",
 				ret);
 			pr_warn("minimem: transparent fault interception disabled\n");
 			return ret;
 		}
 
 		hook_registered = true;
-		pr_info("minimem: kprobe registered on do_swap_page "
+		pr_info("minimem: kretprobe registered on do_swap_page "
 			"(fallback — kernel patches not detected)\n");
 	}
 
@@ -576,9 +620,9 @@ void minimem_hook_exit(void)
 	}
 
 	if (hook_registered) {
-		unregister_kprobe(&minimem_kp);
+		unregister_kretprobe(&minimem_kretprobe);
 		hook_registered = false;
-		pr_info("minimem: kprobe unregistered\n");
+		pr_info("minimem: kretprobe unregistered\n");
 	}
 
 	pr_info("minimem: hook faults_handled=%lld faults_missed=%lld ns=%lld\n",
@@ -604,18 +648,24 @@ bool minimem_hook_symbols_resolved(void)
 
 bool minimem_hook_marker_ready(void)
 {
-	return kernel_patches_detected;
+	/*
+	 * Returns true if PTE marker replacement is safe during scanner sweep.
+	 * On custom kernels (CONFIG_MINIMEM), handle_pte_marker() calls our
+	 * fault handler directly. On stock kernels, the kretprobe return
+	 * handler changes VM_FAULT_SIGBUS to VM_FAULT_NOPAGE for MiniMem
+	 * PTE markers, making marker replacement safe.
+	 */
+	return kernel_patches_detected || hook_registered;
 }
 
 bool minimem_hook_fault_handler_ready(void)
 {
 	/*
-	 * Returns true if either kernel patches or kprobe fallback is
+	 * Returns true if either kernel patches or kretprobe fallback is
 	 * available. Used by the scanner to decide whether to run at all.
-	 * Note: kprobe fallback alone is NOT sufficient for PTE replacement
-	 * (sweep pass), because on x86-64 pte_unmap_same() does not detect
-	 * PTE changes made by our handler. Use minimem_hook_marker_ready()
-	 * for sweep pass gating.
+	 * The kretprobe fallback intercepts do_swap_page() entry and return:
+	 * entry handler decompresses and installs present PTE, return handler
+	 * changes VM_FAULT_SIGBUS to VM_FAULT_NOPAGE for MiniMem faults.
 	 */
 	return kernel_patches_detected || hook_registered;
 }
@@ -795,6 +845,8 @@ int minimem_compress_and_replace_pte(struct mm_struct *mm,
 	 */
 	percpu_counter_add(&mm->rss_stat[MM_ANONPAGES], -1);
 	put_page(page);
+
+	minimem_mmu_register_deferred(mm);
 
 	atomic64_inc(&hook_faults_handled);
 

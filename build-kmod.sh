@@ -64,7 +64,7 @@ do_build() {
     # we substitute KERNELDIR separately since it's a shell variable)
     cat > "$KBUILD/src/kernel/Makefile" << 'MAKEEOF'
 obj-m += minimem.o
-minimem-y := minimem_main.o minimem_compress.o minimem_map.o minimem_zswap.o minimem_parallel.o minimem_fault.o minimem_shrinker.o minimem_scanner.o minimem_hook.o minimem_proc_stats.o minimem_compat_check.o
+minimem-y := minimem_main.o minimem_compress.o minimem_map.o minimem_zswap.o minimem_parallel.o minimem_fault.o minimem_shrinker.o minimem_scanner.o minimem_hook.o minimem_proc_stats.o minimem_compat_check.o minimem_mmu.o
 minimem-y += lib/compressors/same_page.o
 minimem-y += lib/compressors/bdi.o
 minimem-y += lib/compressors/wkdm.o

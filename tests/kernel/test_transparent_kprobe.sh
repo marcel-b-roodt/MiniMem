@@ -29,13 +29,13 @@ fi
 
 # Check that a fault handler is available (kernel patches OR kprobe)
 KP=$(cat "$SYSDIR/kernel_patches" 2>/dev/null)
-HOOK_MSG=$(dmesg | grep "minimem:" | grep -E "kprobe registered|fault handler" | tail -3)
+HOOK_MSG=$(dmesg | grep "minimem:" | grep -E "kretprobe registered|kprobe registered|fault handler" | tail -3)
 echo "  kernel_patches: $KP"
 echo "  hook messages: $HOOK_MSG"
 
 if [ "$KP" = "1" ]; then
     pass "kernel patches detected — patched fault handler active"
-elif echo "$HOOK_MSG" | grep -q "kprobe registered"; then
+elif echo "$HOOK_MSG" | grep -qE "kretprobe registered|kprobe registered"; then
     pass "kprobe fallback active — transparent faults should work"
 else
     skip "no fault handler available — transparent compression cannot work"

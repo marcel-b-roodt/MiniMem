@@ -77,11 +77,11 @@ else
 fi
 
 # Check if kprobe on do_swap_page registered
-if echo "$HOOK_MSG" | grep -q "kprobe registered"; then
-    pass "kprobe registered on do_swap_page"
+if echo "$HOOK_MSG" | grep -qE "kretprobe registered|kprobe registered"; then
+    pass "kretprobe/kprobe registered on do_swap_page"
 elif echo "$HOOK_MSG" | grep -q "could not resolve kernel symbols"; then
     skip "kernel symbols not resolved (CONFIG_KALLSYMS_ALL missing?)"
-elif echo "$HOOK_MSG" | grep -q "failed to register kprobe"; then
+elif echo "$HOOK_MSG" | grep -qE "failed to register kretprobe|failed to register kprobe"; then
     skip "kprobe registration failed (CONFIG_KPROBES missing?)"
 else
     echo "  (no hook messages found in dmesg, checking module version)"
@@ -276,7 +276,7 @@ echo "  hook_faults: $FAULTS"
 
 if [ "$DECOMP" -gt 0 ]; then
     pass "some pages were decompressed ($DECOMP)"
-elif [ "$FAULTS" -eq 0 ] && echo "$HOOK_MSG" | grep -q "kprobe registered"; then
+elif [ "$FAULTS" -eq 0 ] && echo "$HOOK_MSG" | grep -qE "kretprobe registered|kprobe registered"; then
     pass "hook active but no faults yet (expected — no compressed pages accessed)"
 else
     skip "no decompressions recorded"
