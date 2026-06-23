@@ -138,6 +138,7 @@ PRJ_XML
         cp "$PACKAGING_DIR/debian/libminimem-dev.install" "$WORK_DIR/minimem/debian.libminimem-dev.install"
         cp "$PACKAGING_DIR/debian/minimem-dkms.install" "$WORK_DIR/minimem/debian.minimem-dkms.install"
         cp "$PACKAGING_DIR/debian/minimem-dkms-systemd.install" "$WORK_DIR/minimem/debian.minimem-dkms-systemd.install"
+        cp "$PACKAGING_DIR/debian/minimem-cli.install" "$WORK_DIR/minimem/debian.minimem-cli.install"
         cp "$PACKAGING_DIR/debian/minimem-dkms-systemd.postinst" "$WORK_DIR/minimem/debian.minimem-dkms-systemd.postinst"
         cp "$PACKAGING_DIR/debian/minimem-dkms-systemd.prerm" "$WORK_DIR/minimem/debian.minimem-dkms-systemd.prerm"
         cp "$PACKAGING_DIR/debian/minimem.dsc" "$WORK_DIR/minimem/"

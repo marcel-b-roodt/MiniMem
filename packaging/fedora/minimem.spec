@@ -230,6 +230,7 @@ dkms remove minimem/%{version} --all 2>/dev/null || true
 %{_unitdir}/minimem.service
 %{_modulesloaddir}/minimem.conf
 
+%changelog
 * Tue Jun 23 2026 Marcel Broodt <minimem@noreply.github.com> - 0.9.0-1
 - Add scanner CPU budget system (scanner_cpu_budget_ms, scanner_mark_budget_pages)
 - Add cursor-based resumption for mark and sweep phases
