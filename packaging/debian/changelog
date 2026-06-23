@@ -1,6 +1,12 @@
 minimem (0.9.0-1) unstable; urgency=low
 
-  * Bump version to 0.9.0
+  * Scanner CPU budget system (scanner_cpu_budget_ms, scanner_mark_budget_pages)
+  * Cursor-based resumption for mark and sweep phases
+  * MMU notifier for process exit cleanup on stock kernels
+  * Kretprobe fault handler enabling scanner sweep on unpatched kernels
+  * Per-process compression via compress_pid sysfs attribute
+  * scanner_mark_yielded and scanner_sweep_yielded stats
+  * Fix scanner_cycles_empty being incremented on every cycle
 
  -- Marcel Broodt <minimem@noreply.github.com>  Tue, 23 Jun 2026 00:00:00 +0000
 

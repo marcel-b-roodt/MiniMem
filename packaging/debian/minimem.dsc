@@ -37,7 +37,7 @@ Description: MiniMem kernel module (DKMS)
 
 Package: minimem-dkms-systemd
 Architecture: all
-Depends: minimem-dkms (= 0.8.0-1), systemd, ${misc:Depends}
+Depends: minimem-dkms (= ${binary:Version}), systemd, ${misc:Depends}
 Description: MiniMem auto-load and auto-enable systemd units
  Systemd units to automatically load the minimem kernel module
  and enable the scanner on boot.

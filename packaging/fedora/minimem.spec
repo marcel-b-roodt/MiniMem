@@ -5,7 +5,7 @@ Summary:        Transparent lossless memory compression library
 
 License:        GPL-2.0-only AND BSD-2-Clause AND BSD-3-Clause
 URL:            https://github.com/marcel-b-roodt/MiniMem
-Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz#/minimem-%{version}.tar.gz
+Source0:        minimem-%{version}.tar.gz
 Source1:        minimem-rpmlintrc
 
 BuildRequires:  meson
@@ -231,13 +231,13 @@ dkms remove minimem/%{version} --all 2>/dev/null || true
 %{_modulesloaddir}/minimem.conf
 
 * Tue Jun 23 2026 Marcel Broodt <minimem@noreply.github.com> - 0.9.0-1
-- Bump version to 0.9.0
-
-- Add per-process compression statistics
-- Add local install/uninstall script
-- Add AUR minimem-dkms-systemd package
-- Add recovery documentation
-- Shellcheck lint fixes across test scripts
+- Add scanner CPU budget system (scanner_cpu_budget_ms, scanner_mark_budget_pages)
+- Add cursor-based resumption for mark and sweep phases
+- Add MMU notifier for process exit cleanup on stock kernels
+- Add kretprobe fault handler enabling scanner sweep on unpatched kernels
+- Add per-process compression via compress_pid sysfs attribute
+- Add scanner_mark_yielded and scanner_sweep_yielded stats
+- Fix scanner_cycles_empty being incremented on every cycle instead of only empty ones
 
 * Thu Jun 18 2026 Marcel Broodt <minimem@noreply.github.com> - 0.7.0-1
 - Add parallel decompression auto-detect and sysfs toggle

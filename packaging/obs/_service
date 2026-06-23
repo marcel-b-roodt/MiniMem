@@ -1,5 +1,2 @@
 <services>
-  <service name="download_files">
-    <param name="enforceupstream">1</param>
-  </service>
 </services>
