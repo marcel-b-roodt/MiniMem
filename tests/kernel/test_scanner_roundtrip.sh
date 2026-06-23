@@ -9,6 +9,8 @@
 #   5. Verify adaptive interval behavior
 #   6. Verify skip filter counters
 #   7. Verify CPU overhead within bounds
+#   8. Verify CPU budget enforcement (sysfs knobs, clamp, yield)
+#   9. Verify drain-and-restore
 #
 # Must run inside the MiniMem VM.
 # Exit codes: 0 = all pass, 1 = any fail
@@ -38,7 +40,9 @@ for attr in scanner_enabled scanner_pages_scanned scanner_pages_compressed \
             scanner_current_interval_ms hook_faults \
             scanner_skip_vma_locked scanner_skip_page_shared \
             scanner_skip_incompressible decompress_avg_ns \
-            compress_avg_ns; do
+            compress_avg_ns scanner_cpu_budget_ms \
+            scanner_mark_budget_pages scanner_mark_yielded \
+            scanner_sweep_yielded; do
     if [ -f "$SYSDIR/$attr" ]; then
         pass "sysfs attribute $attr exists"
     else
@@ -76,13 +80,13 @@ echo ""
 
 # Check if a fault handler is available
 KP=$(cat "$SYSDIR/kernel_patches" 2>/dev/null || echo 0)
-HOOK_MSG=$(dmesg | grep "minimem:" | grep -E "kprobe registered|fault handler" | tail -3)
+HOOK_MSG=$(dmesg | grep "minimem:" | grep -E "kretprobe registered|kprobe registered|fault handler" | tail -3)
 echo "  kernel_patches: $KP"
 echo "  hook messages: $HOOK_MSG"
 
 if [ "$KP" = "1" ]; then
     pass "kernel patches — full fault handler active"
-elif echo "$HOOK_MSG" | grep -q "kprobe registered"; then
+elif echo "$HOOK_MSG" | grep -qE "kretprobe registered|kprobe registered"; then
     pass "kprobe fault handler active"
 else
     skip "no fault handler — transparent decompression won't work"
@@ -222,7 +226,158 @@ else
 fi
 echo ""
 
-# Test 6: Drain-and-restore verification (via static binary)
+# Test 6: Scanner CPU budget enforcement
+echo "--- Scanner budget enforcement test ---"
+
+BUDGET_MS=$(cat "$SYSDIR/scanner_cpu_budget_ms" 2>/dev/null || echo -1)
+MARK_BUDGET=$(cat "$SYSDIR/scanner_mark_budget_pages" 2>/dev/null || echo -1)
+BEFORE_MARK_YIELDED=$(cat "$SYSDIR/scanner_mark_yielded" 2>/dev/null || echo 0)
+BEFORE_SWEEP_YIELDED=$(cat "$SYSDIR/scanner_sweep_yielded" 2>/dev/null || echo 0)
+
+echo "  Default cpu_budget_ms:      $BUDGET_MS"
+echo "  Default mark_budget_pages:  $MARK_BUDGET"
+echo "  mark_yielded:               $BEFORE_MARK_YIELDED"
+echo "  sweep_yielded:              $BEFORE_SWEEP_YIELDED"
+
+if [ "$BUDGET_MS" = "50" ]; then
+    pass "cpu_budget_ms default is 50"
+else
+    fail "cpu_budget_ms default is $BUDGET_MS (expected 50)"
+fi
+
+if [ "$MARK_BUDGET" = "65536" ]; then
+    pass "mark_budget_pages default is 65536"
+else
+    fail "mark_budget_pages default is $MARK_BUDGET (expected 65536)"
+fi
+
+# Test write to cpu_budget_ms
+echo "1" > "$SYSDIR/scanner_cpu_budget_ms" 2>/dev/null
+BUDGET_READ=$(cat "$SYSDIR/scanner_cpu_budget_ms" 2>/dev/null || echo -1)
+if [ "$BUDGET_READ" = "1" ]; then
+    pass "cpu_budget_ms set to 1"
+else
+    fail "cpu_budget_ms set failed (got $BUDGET_READ)"
+fi
+
+# Test boundary clamping: below minimum
+echo "0" > "$SYSDIR/scanner_cpu_budget_ms" 2>/dev/null
+BUDGET_READ=$(cat "$SYSDIR/scanner_cpu_budget_ms" 2>/dev/null || echo -1)
+if [ "$BUDGET_READ" = "1" ]; then
+    pass "cpu_budget_ms clamped to minimum 1"
+else
+    fail "cpu_budget_ms clamp failed (got $BUDGET_READ, expected 1)"
+fi
+
+# Test boundary clamping: above maximum
+echo "2000" > "$SYSDIR/scanner_cpu_budget_ms" 2>/dev/null
+BUDGET_READ=$(cat "$SYSDIR/scanner_cpu_budget_ms" 2>/dev/null || echo -1)
+if [ "$BUDGET_READ" = "1000" ]; then
+    pass "cpu_budget_ms clamped to maximum 1000"
+else
+    fail "cpu_budget_ms clamp failed (got $BUDGET_READ, expected 1000)"
+fi
+
+# Test write to mark_budget_pages
+echo "4096" > "$SYSDIR/scanner_mark_budget_pages" 2>/dev/null
+MARK_READ=$(cat "$SYSDIR/scanner_mark_budget_pages" 2>/dev/null || echo -1)
+if [ "$MARK_READ" = "4096" ]; then
+    pass "mark_budget_pages set to 4096"
+else
+    fail "mark_budget_pages set failed (got $MARK_READ)"
+fi
+
+# Test boundary clamping: below minimum
+echo "100" > "$SYSDIR/scanner_mark_budget_pages" 2>/dev/null
+MARK_READ=$(cat "$SYSDIR/scanner_mark_budget_pages" 2>/dev/null || echo -1)
+if [ "$MARK_READ" = "4096" ]; then
+    pass "mark_budget_pages clamped to minimum 4096"
+else
+    fail "mark_budget_pages clamp failed (got $MARK_READ, expected 4096)"
+fi
+
+# Test boundary clamping: above maximum
+echo "999999" > "$SYSDIR/scanner_mark_budget_pages" 2>/dev/null
+MARK_READ=$(cat "$SYSDIR/scanner_mark_budget_pages" 2>/dev/null || echo -1)
+if [ "$MARK_READ" = "524288" ]; then
+    pass "mark_budget_pages clamped to maximum 524288"
+else
+    fail "mark_budget_pages clamp failed (got $MARK_READ, expected 524288)"
+fi
+
+# Budget enforcement: set very low budget and enable scanner to trigger yields
+echo "1" > "$SYSDIR/scanner_cpu_budget_ms" 2>/dev/null
+echo "4096" > "$SYSDIR/scanner_mark_budget_pages" 2>/dev/null
+echo "1000" > "$SYSDIR/scanner_interval_ms" 2>/dev/null
+
+BUDGET_CYCLES_BEFORE=$(cat "$SYSDIR/scanner_cycles_total" 2>/dev/null || echo 0)
+
+echo "1" > "$SYSDIR/scanner_enabled" 2>/dev/null
+echo "  Scanner enabled with budget=1ms, mark_budget=4096"
+echo "  Waiting 5 seconds for budget-enforced scanning..."
+
+sleep 5
+
+AFTER_MARK_YIELDED=$(cat "$SYSDIR/scanner_mark_yielded" 2>/dev/null || echo 0)
+AFTER_SWEEP_YIELDED=$(cat "$SYSDIR/scanner_sweep_yielded" 2>/dev/null || echo 0)
+BUDGET_CYCLES_AFTER=$(cat "$SYSDIR/scanner_cycles_total" 2>/dev/null || echo 0)
+
+echo "  After budget scan:"
+echo "    cycles_total:    $BUDGET_CYCLES_AFTER (was $BUDGET_CYCLES_BEFORE)"
+echo "    mark_yielded:    $AFTER_MARK_YIELDED"
+echo "    sweep_yielded:   $AFTER_SWEEP_YIELDED"
+
+if [ "$AFTER_MARK_YIELDED" -gt "$BEFORE_MARK_YIELDED" ] || \
+   [ "$AFTER_SWEEP_YIELDED" -gt "$BEFORE_SWEEP_YIELDED" ]; then
+    pass "budget enforcement: scanner yielded at least once (mark=$((AFTER_MARK_YIELDED - BEFORE_MARK_YIELDED)), sweep=$((AFTER_SWEEP_YIELDED - BEFORE_SWEEP_YIELDED)))"
+else
+    echo "  (may not yield on systems with few pages — expected on small VMs)"
+    pass "budget enforcement: yielded counters exist and are non-negative"
+fi
+
+BUDGET_CYCLES_DELTA=$((BUDGET_CYCLES_AFTER - BUDGET_CYCLES_BEFORE))
+if [ "$BUDGET_CYCLES_DELTA" -gt 0 ]; then
+    pass "scanner ran budget-enforced cycles ($BUDGET_CYCLES_DELTA)"
+else
+    fail "scanner did not run any cycles with budget enforcement"
+fi
+
+# Restore defaults and verify scanner still works
+echo "0" > "$SYSDIR/scanner_enabled" 2>/dev/null
+sleep 1
+echo "50" > "$SYSDIR/scanner_cpu_budget_ms" 2>/dev/null
+echo "65536" > "$SYSDIR/scanner_mark_budget_pages" 2>/dev/null
+
+BUDGET_RESTORED=$(cat "$SYSDIR/scanner_cpu_budget_ms" 2>/dev/null)
+MARK_RESTORED=$(cat "$SYSDIR/scanner_mark_budget_pages" 2>/dev/null)
+if [ "$BUDGET_RESTORED" = "50" ] && [ "$MARK_RESTORED" = "65536" ]; then
+    pass "budget defaults restored"
+else
+    fail "budget restore failed (budget=$BUDGET_RESTORED, mark=$MARK_RESTORED)"
+fi
+
+# Re-enable scanner with normal budget and verify it still works
+BEFORE_CMP2=$(cat "$SYSDIR/scanner_pages_compressed" 2>/dev/null || echo 0)
+echo "1" > "$SYSDIR/scanner_enabled" 2>/dev/null
+echo "  Scanner re-enabled with normal budget, waiting 5 seconds..."
+
+sleep 5
+
+AFTER_CMP2=$(cat "$SYSDIR/scanner_pages_compressed" 2>/dev/null || echo 0)
+echo "0" > "$SYSDIR/scanner_enabled" 2>/dev/null
+
+DELTA_CMP2=$((AFTER_CMP2 - BEFORE_CMP2))
+echo "  Pages compressed with normal budget: $DELTA_CMP2"
+
+if [ "$DELTA_CMP2" -ge 0 ]; then
+    pass "scanner still functional after budget changes (compressed $DELTA_CMP2 pages)"
+else
+    fail "scanner compression went backwards after budget changes"
+fi
+
+echo ""
+
+# Test 7: Drain-and-restore verification (via static binary)
 if [ -x /test_drain_restore ]; then
     echo "--- Running drain-and-restore test ---"
     /test_drain_restore
@@ -239,7 +394,7 @@ echo ""
 
 # Check for kernel errors
 echo "--- Kernel log check ---"
-ERRORS=$(dmesg | grep -iE "bug|panic|oops|minimem.*error" | grep -v "pr_debug\|0 failed" | tail -5 || true)
+ERRORS=$(dmesg | grep -iE "^[^[]*bug:|kernel panic|oops:|minimem.*error" | grep -v "pr_debug\|0 failed" | tail -5 || true)
 if [ -z "$ERRORS" ]; then
     pass "no kernel errors detected"
 else

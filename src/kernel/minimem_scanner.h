@@ -7,9 +7,11 @@
  * cold pages.
  *
  * Sysfs controls:
- *   scanner_enabled      — enable/disable (0/1)
- *   scanner_interval_ms — scan interval in milliseconds
- *   min_savings_pct     — minimum savings percentage (0-100)
+ *   scanner_enabled           — enable/disable (0/1)
+ *   scanner_interval_ms       — scan interval in milliseconds
+ *   min_savings_pct           — minimum savings percentage (0-100)
+ *   scanner_cpu_budget_ms     — max wall-clock ms per phase (1-1000)
+ *   scanner_mark_budget_pages — max pages examined per mark phase
  */
 
 #ifndef MINIMEM_KERNEL_SCANNER_H
@@ -38,5 +40,11 @@ unsigned long minimem_scanner_skip_incompressible(void);
 unsigned long minimem_scanner_cycles_total(void);
 unsigned long minimem_scanner_cycles_empty(void);
 unsigned long minimem_scanner_current_interval_ms(void);
+long minimem_scanner_cpu_budget_ms(void);
+void minimem_scanner_set_cpu_budget_ms(long ms);
+long minimem_scanner_mark_budget_pages(void);
+void minimem_scanner_set_mark_budget_pages(long pages);
+unsigned long minimem_scanner_mark_yielded(void);
+unsigned long minimem_scanner_sweep_yielded(void);
 
 #endif /* MINIMEM_KERNEL_SCANNER_H */

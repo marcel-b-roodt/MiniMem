@@ -41,6 +41,7 @@
 #include "minimem_hook.h"
 #include "minimem_proc_stats.h"
 #include "minimem_compat_check.h"
+#include "minimem_mmu.h"
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("MiniMem Project");
@@ -175,6 +176,18 @@ static ssize_t zap_cb_miss_count_show(struct kobject *kobj,
 				       struct kobj_attribute *attr, char *buf)
 {
 	return sprintf(buf, "%lu\n", minimem_zswap_zap_cb_miss_count());
+}
+
+static ssize_t mmu_release_count_show(struct kobject *kobj,
+				      struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_mmu_release_count());
+}
+
+static ssize_t mmu_release_pages_show(struct kobject *kobj,
+				      struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_mmu_release_pages());
 }
 
 static ssize_t parallel_clusters_show(struct kobject *kobj,
@@ -359,6 +372,55 @@ static ssize_t scanner_current_interval_ms_show(struct kobject *kobj,
 	return sprintf(buf, "%lu\n", minimem_scanner_current_interval_ms());
 }
 
+static ssize_t scanner_cpu_budget_ms_show(struct kobject *kobj,
+					   struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%ld\n", minimem_scanner_cpu_budget_ms());
+}
+
+static ssize_t scanner_cpu_budget_ms_store(struct kobject *kobj,
+					    struct kobj_attribute *attr,
+					    const char *buf, size_t count)
+{
+	long val;
+	int ret = kstrtol(buf, 0, &val);
+	if (ret)
+		return ret;
+	minimem_scanner_set_cpu_budget_ms(val);
+	return count;
+}
+
+static ssize_t scanner_mark_budget_pages_show(struct kobject *kobj,
+						struct kobj_attribute *attr,
+						char *buf)
+{
+	return sprintf(buf, "%ld\n", minimem_scanner_mark_budget_pages());
+}
+
+static ssize_t scanner_mark_budget_pages_store(struct kobject *kobj,
+						 struct kobj_attribute *attr,
+						 const char *buf, size_t count)
+{
+	long val;
+	int ret = kstrtol(buf, 0, &val);
+	if (ret)
+		return ret;
+	minimem_scanner_set_mark_budget_pages(val);
+	return count;
+}
+
+static ssize_t scanner_mark_yielded_show(struct kobject *kobj,
+					  struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_scanner_mark_yielded());
+}
+
+static ssize_t scanner_sweep_yielded_show(struct kobject *kobj,
+					   struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_scanner_sweep_yielded());
+}
+
 static ssize_t hook_faults_show(struct kobject *kobj,
 				 struct kobj_attribute *attr, char *buf)
 {
@@ -448,6 +510,10 @@ static struct kobj_attribute zap_cb_count_attr =
 	__ATTR(zap_cb_count, 0444, zap_cb_count_show, NULL);
 static struct kobj_attribute zap_cb_miss_count_attr =
 	__ATTR(zap_cb_miss_count, 0444, zap_cb_miss_count_show, NULL);
+static struct kobj_attribute mmu_release_count_attr =
+	__ATTR(mmu_release_count, 0444, mmu_release_count_show, NULL);
+static struct kobj_attribute mmu_release_pages_attr =
+	__ATTR(mmu_release_pages, 0444, mmu_release_pages_show, NULL);
 static struct kobj_attribute parallel_clusters_attr =
 	__ATTR(parallel_clusters, 0444, parallel_clusters_show, NULL);
 static struct kobj_attribute parallel_pages_attr =
@@ -488,6 +554,14 @@ static struct kobj_attribute scanner_cycles_empty_attr =
 	__ATTR(scanner_cycles_empty, 0444, scanner_cycles_empty_show, NULL);
 static struct kobj_attribute scanner_current_interval_ms_attr =
 	__ATTR(scanner_current_interval_ms, 0444, scanner_current_interval_ms_show, NULL);
+static struct kobj_attribute scanner_cpu_budget_ms_attr =
+	__ATTR(scanner_cpu_budget_ms, 0644, scanner_cpu_budget_ms_show, scanner_cpu_budget_ms_store);
+static struct kobj_attribute scanner_mark_budget_pages_attr =
+	__ATTR(scanner_mark_budget_pages, 0644, scanner_mark_budget_pages_show, scanner_mark_budget_pages_store);
+static struct kobj_attribute scanner_mark_yielded_attr =
+	__ATTR(scanner_mark_yielded, 0444, scanner_mark_yielded_show, NULL);
+static struct kobj_attribute scanner_sweep_yielded_attr =
+	__ATTR(scanner_sweep_yielded, 0444, scanner_sweep_yielded_show, NULL);
 static struct kobj_attribute hook_faults_attr =
 	__ATTR(hook_faults, 0444, hook_faults_show, NULL);
 static struct kobj_attribute kernel_patches_attr =
@@ -536,6 +610,88 @@ static ssize_t compat_report_show(struct kobject *kobj,
 static struct kobj_attribute compat_report_attr =
 	__ATTR(compat_report, 0444, compat_report_show, NULL);
 
+/*
+ * compress_pid: Takes a PID, walks that process's anonymous VMAs,
+ * and compresses eligible pages. This provides opt-in transparent
+ * compression on stock kernels where the scanner sweep is disabled.
+ *
+ * Usage: echo <pid> > /sys/kernel/minimem/compress_pid
+ * Returns: number of bytes written on success.
+ */
+static ssize_t compress_pid_store(struct kobject *kobj,
+				   struct kobj_attribute *attr,
+				   const char *buf, size_t count)
+{
+	pid_t pid;
+	struct task_struct *task;
+	struct mm_struct *mm;
+	struct vm_area_struct *vma;
+	unsigned long vaddr;
+	unsigned long compressed = 0, skipped = 0;
+	int ret;
+
+	ret = kstrtoint(buf, 10, &pid);
+	if (ret)
+		return ret;
+
+	rcu_read_lock();
+	task = pid_task(find_vpid(pid), PIDTYPE_PID);
+	if (task)
+		get_task_struct(task);
+	rcu_read_unlock();
+
+	if (!task)
+		return -ESRCH;
+
+	mm = get_task_mm(task);
+	put_task_struct(task);
+	if (!mm)
+		return -ESRCH;
+
+	if (!mmap_read_trylock(mm)) {
+		mmput(mm);
+		return -EBUSY;
+	}
+
+	VMA_ITERATOR(vmi, mm, 0);
+	for_each_vma(vmi, vma) {
+		if (!vma)
+			break;
+		if (!vma_is_anonymous(vma))
+			continue;
+		if (!vma->vm_start || !vma->vm_end)
+			continue;
+		if (vma->vm_flags & (VM_PFNMAP | VM_IO | VM_SHARED))
+			continue;
+		if (vma->vm_flags & VM_LOCKED)
+			continue;
+
+		for (vaddr = vma->vm_start; vaddr < vma->vm_end;
+		     vaddr += PAGE_SIZE) {
+			ret = minimem_compress_and_replace_pte(mm, vma, vaddr);
+			if (ret == 0)
+				compressed++;
+			else
+				skipped++;
+		}
+	}
+
+	mmap_read_unlock(mm);
+
+	if (compressed > 0)
+		minimem_mmu_register_deferred(mm);
+
+	mmput(mm);
+
+	pr_info("minimem: compress_pid %d: compressed %lu pages, "
+		"skipped %lu\n", pid, compressed, skipped);
+
+	return count;
+}
+
+static struct kobj_attribute compress_pid_attr =
+	__ATTR(compress_pid, 0200, NULL, compress_pid_store);
+
 static struct attribute *minimem_attrs[] = {
 	&pages_compressed_attr.attr,
 	&pages_decompressed_attr.attr,
@@ -552,6 +708,9 @@ static struct attribute *minimem_attrs[] = {
 	&pool_pages_attr.attr,
 	&zap_cb_count_attr.attr,
 	&zap_cb_miss_count_attr.attr,
+	&mmu_release_count_attr.attr,
+	&mmu_release_pages_attr.attr,
+	&compress_pid_attr.attr,
 	&parallel_clusters_attr.attr,
 	&parallel_pages_attr.attr,
 	&bench_baseline_ns_attr.attr,
@@ -572,6 +731,10 @@ static struct attribute *minimem_attrs[] = {
 	&scanner_cycles_total_attr.attr,
 	&scanner_cycles_empty_attr.attr,
 	&scanner_current_interval_ms_attr.attr,
+	&scanner_cpu_budget_ms_attr.attr,
+	&scanner_mark_budget_pages_attr.attr,
+	&scanner_mark_yielded_attr.attr,
+	&scanner_sweep_yielded_attr.attr,
 	&hook_faults_attr.attr,
 	&kernel_patches_attr.attr,
 	&max_pool_pages_attr.attr,
@@ -968,9 +1131,21 @@ static int __init minimem_init(void)
 		return ret;
 	}
 
+	ret = minimem_mmu_init();
+	if (ret) {
+		pr_err("minimem: failed to initialize MMU notifier\n");
+		minimem_shrinker_exit();
+		minimem_fault_exit();
+		minimem_parallel_exit();
+		minimem_zswap_exit();
+		minimem_compress_exit();
+		return ret;
+	}
+
 	ret = minimem_scanner_init();
 	if (ret) {
 		pr_err("minimem: failed to initialize scanner\n");
+		minimem_mmu_exit();
 		minimem_shrinker_exit();
 		minimem_fault_exit();
 		minimem_parallel_exit();
@@ -989,6 +1164,7 @@ static int __init minimem_init(void)
 	if (!minimem_kobj) {
 		minimem_hook_exit();
 		minimem_scanner_exit();
+		minimem_mmu_exit();
 		minimem_shrinker_exit();
 		minimem_fault_exit();
 		minimem_parallel_exit();
@@ -1002,6 +1178,7 @@ static int __init minimem_init(void)
 		kobject_put(minimem_kobj);
 		minimem_hook_exit();
 		minimem_scanner_exit();
+		minimem_mmu_exit();
 		minimem_shrinker_exit();
 		minimem_fault_exit();
 		minimem_parallel_exit();
@@ -1081,6 +1258,7 @@ static void __exit minimem_exit(void)
 	pr_info("minimem: restored %ld compressed pages on unload\n", restored);
 
 	minimem_hook_exit();
+	minimem_mmu_exit();
 	minimem_shrinker_exit();
 	minimem_fault_exit();
 	minimem_parallel_exit();
