@@ -78,21 +78,11 @@ but require manual application and kernel rebuild.
 %autosetup -n MiniMem-%{version}
 
 %build
-%if 0%{?fedora} || 0%{?rhel}
 %meson -Dtests=false
 %meson_build
-%else
-mkdir -p build
-meson setup build --buildtype=plain -Dtests=false
-ninja -C build %{?_smp_mflags}
-%endif
 
 %install
-%if 0%{?fedora} || 0%{?rhel}
 %meson_install
-%else
-DESTDIR=%{buildroot} ninja -C build install
-%endif
 
 DKMS_DIR=%{buildroot}/usr/src/minimem-%{version}
 mkdir -p $DKMS_DIR/lib/compressors $DKMS_DIR/include $DKMS_DIR/patches
