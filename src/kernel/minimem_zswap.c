@@ -24,7 +24,9 @@
 #include <linux/sched.h>
 #include <linux/kthread.h>
 #include <linux/rmap.h>
+#include <linux/swap.h>
 #include <linux/pgtable.h>
+#include <linux/swapops.h>
 
 #include "minimem_zswap.h"
 #include "minimem_compress.h"
@@ -41,6 +43,8 @@ static atomic64_t mm_max_pool_pages = ATOMIC64_INIT(0);
 static atomic64_t mm_stored_pages;
 static atomic64_t mm_total_bytes;
 static atomic64_t mm_bytes_saved;
+static atomic64_t mm_zap_cb_count;
+static atomic64_t mm_zap_cb_miss_count;
 
 int minimem_zswap_init(void)
 {
@@ -51,6 +55,8 @@ int minimem_zswap_init(void)
 	atomic64_set(&mm_stored_pages, 0);
 	atomic64_set(&mm_total_bytes, 0);
 	atomic64_set(&mm_bytes_saved, 0);
+	atomic64_set(&mm_zap_cb_count, 0);
+	atomic64_set(&mm_zap_cb_miss_count, 0);
 
 	return minimem_map_init(&minimem_map);
 }
@@ -280,6 +286,16 @@ void minimem_zswap_set_max_pool_pages(unsigned long max)
 	atomic64_set(&mm_max_pool_pages, (s64)max);
 }
 
+unsigned long minimem_zswap_zap_cb_count(void)
+{
+	return (unsigned long)atomic64_read(&mm_zap_cb_count);
+}
+
+unsigned long minimem_zswap_zap_cb_miss_count(void)
+{
+	return (unsigned long)atomic64_read(&mm_zap_cb_miss_count);
+}
+
 /*
  * Decompress all stored pages and restore their PTEs to present.
  * Walks all processes' page tables, finds MiniMem PTE markers,
@@ -488,10 +504,24 @@ void minimem_zswap_zap_cb(struct vm_area_struct *vma,
 	unsigned long vaddr = addr & PAGE_MASK;
 	struct minimem_map_entry map_entry;
 	int ret;
+	static bool first_call = true;
+
+	atomic64_inc(&mm_zap_cb_count);
+
+	if (first_call) {
+		first_call = false;
+		pr_info("minimem: zap_cb first invocation addr=0x%lx "
+			"entry.val=0x%lx swp_type=%lu offset=0x%lx\n",
+			addr, entry.val, (unsigned long)swp_type(entry),
+			(unsigned long)swp_offset(entry));
+	}
 
 	ret = minimem_map_lookup(&minimem_map, vaddr, &map_entry);
-	if (ret)
+	if (ret) {
+		atomic64_inc(&mm_zap_cb_miss_count);
+		pr_debug("minimem: zap_cb: map_lookup failed for vaddr=0x%lx\n", vaddr);
 		return;
+	}
 
 	minimem_map_remove(&minimem_map, vaddr);
 	zs_free(minimem_pool, map_entry.zs_handle);

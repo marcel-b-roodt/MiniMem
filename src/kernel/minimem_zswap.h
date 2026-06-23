@@ -87,5 +87,7 @@ unsigned long minimem_zswap_stored_pages(void);
 unsigned long minimem_zswap_bytes_saved(void);
 unsigned long minimem_zswap_max_pool_pages(void);
 void minimem_zswap_set_max_pool_pages(unsigned long max);
+unsigned long minimem_zswap_zap_cb_count(void);
+unsigned long minimem_zswap_zap_cb_miss_count(void);
 
 #endif /* MINIMEM_KERNEL_ZSWAP_H */

@@ -165,6 +165,18 @@ static ssize_t pool_pages_show(struct kobject *kobj,
 	return sprintf(buf, "%lu\n", zs_get_total_pages(minimem_zswap_pool()));
 }
 
+static ssize_t zap_cb_count_show(struct kobject *kobj,
+				  struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_zswap_zap_cb_count());
+}
+
+static ssize_t zap_cb_miss_count_show(struct kobject *kobj,
+				       struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%lu\n", minimem_zswap_zap_cb_miss_count());
+}
+
 static ssize_t parallel_clusters_show(struct kobject *kobj,
 				      struct kobj_attribute *attr, char *buf)
 {
@@ -432,6 +444,10 @@ static struct kobj_attribute zswap_saved_attr =
 	__ATTR(zswap_saved, 0444, zswap_saved_show, NULL);
 static struct kobj_attribute pool_pages_attr =
 	__ATTR(pool_pages, 0444, pool_pages_show, NULL);
+static struct kobj_attribute zap_cb_count_attr =
+	__ATTR(zap_cb_count, 0444, zap_cb_count_show, NULL);
+static struct kobj_attribute zap_cb_miss_count_attr =
+	__ATTR(zap_cb_miss_count, 0444, zap_cb_miss_count_show, NULL);
 static struct kobj_attribute parallel_clusters_attr =
 	__ATTR(parallel_clusters, 0444, parallel_clusters_show, NULL);
 static struct kobj_attribute parallel_pages_attr =
@@ -534,6 +550,8 @@ static struct attribute *minimem_attrs[] = {
 	&zswap_bytes_attr.attr,
 	&zswap_saved_attr.attr,
 	&pool_pages_attr.attr,
+	&zap_cb_count_attr.attr,
+	&zap_cb_miss_count_attr.attr,
 	&parallel_clusters_attr.attr,
 	&parallel_pages_attr.attr,
 	&bench_baseline_ns_attr.attr,

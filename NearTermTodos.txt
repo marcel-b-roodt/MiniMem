@@ -12,19 +12,24 @@
   added ensure_module_loaded() helper between test sections
 - [x] Fix format string warning in minimem_compat_check.c (%u → %lu)
 - [x] All 8GB VM tests pass with custom kernel (73 kselftest, 17 E2E, 6 perf harness)
+- [x] Fix "unrecognized swap entry" flood
+  - Root cause: stale kernel build didn't include CONFIG_MINIMEM zap_pte_range patch
+  - After properly rebuilding kernel, the CONFIG_MINIMEM code path catches MiniMem
+    PTE markers in zap_pte_range and calls minimem_zap_cb
+  - Added zap_cb_count and zap_cb_miss_count sysfs attributes for monitoring
+  - Debug logging in minimem_zswap_zap_cb (pr_debug + first-call pr_info)
+- [x] Verify "unrecognized swap entry" encoding analysis
+  - Entries are MiniMem PTE markers (swp_type=31 in arch-independent format)
+  - The previous "swp_type=15" analysis was wrong — SWP_TYPE_SHIFT is 58 (not 59)
+    on x86-64 because BITS_PER_XA_VALUE = BITS_PER_LONG - 1 = 63
 
-## Near-Term — Critical Bugs
+## Near-Term — Open Issues
 
-- [ ] "unrecognized swap entry" flood during drain-and-restore
-  - 1505 kernel log messages during VM test
-  - PTE markers with swp_type=15 instead of expected swp_type=31 (SWP_PTE_MARKER)
-  - minimem_zap_cb is registered but zap_pte_range still hits "unrecognized" path
-  - Need to verify PTE marker encoding matches kernel's is_pte_marker_entry()
-  - Possibly: MiniMem's custom swp_entry encoding differs from kernel's __swp_entry
-  - Possibly: PTE markers from processes that exited before module loaded
-- [ ] CPU overhead test false positive: "scan rate too low" failure
-  - Scanner doesn't find enough idle pages in the short test window
-  - Need to increase scan duration or reduce threshold for test
+- [ ] CPU overhead test threshold too strict for VMs
+  - Scanner rate 132-133 pages/s in QEMU VM (4 vCPU, 8GB)
+  - Test threshold: 1000 pages/s for "OK", 10000 for "PASS"
+  - Need to either: lower VM test threshold, or adjust test for virtualized env
+  - Real hardware likely performs much better (10-100x faster page scanning)
 
 ## Near-Term — Kernel Module (Critical)
 
@@ -33,7 +38,6 @@
 - [ ] THP + KSM compatibility testing (kernel upstreaming prerequisite)
 - [ ] OOM behavior verification (kernel upstreaming prerequisite)
 - [ ] zram coexistence load testing (kernel upstreaming prerequisite)
-- [ ] Test on other distros (CachyOS, Fedora, Mint)
 
 ## Near-Term — VM Testing
 
