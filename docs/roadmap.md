@@ -56,6 +56,10 @@ The core deliverable: transparent compression of cold pages in a running Linux s
 | AUR packaging | ✅ Complete | PKGBUILD + .SRCINFO for minimem and minimem-dkms |
 | kselftest | ✅ Complete | 41 tests in QEMU VM |
 | E2E test | ✅ Complete | 4/4 transparent compression + fault decompression verified |
+| MMU notifier (process exit cleanup) | ✅ Complete | Per-mm notifier; release callback clears PTE markers + frees zsmalloc; eliminates "unrecognized swap entry" on stock kernels |
+| Kretprobe fault handler | ✅ Complete | kretprobe on do_swap_page with entry+return handlers; enables scanner sweep on stock kernels; p99 latency 0.4µs |
+| Per-process compression | ✅ Complete | compress_pid sysfs: write PID to compress eligible anonymous pages |
+| Scanner CPU budget | ✅ Complete | scanner_cpu_budget_ms (1-1000ms, default 50ms); scanner_mark_budget_pages (4096-524288, default 65536); cursor-based resumption; yielded counters |
 | **Remaining** | | |
 | Full scanner E2E on patched kernel | 📋 Planned | Needs custom kernel build; runtime detection ready |
 | Shrinker verification under pressure | 📋 Planned | Needs memory stress test |
