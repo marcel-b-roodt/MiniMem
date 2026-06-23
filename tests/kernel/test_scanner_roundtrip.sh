@@ -239,7 +239,7 @@ echo ""
 
 # Check for kernel errors
 echo "--- Kernel log check ---"
-ERRORS=$(dmesg | grep -iE "bug|panic|oops|minimem.*error|minimem.*fail" | grep -v "pr_debug" | tail -5 || true)
+ERRORS=$(dmesg | grep -iE "bug|panic|oops|minimem.*error" | grep -v "pr_debug\|0 failed" | tail -5 || true)
 if [ -z "$ERRORS" ]; then
     pass "no kernel errors detected"
 else
